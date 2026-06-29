@@ -74,9 +74,26 @@ coverage.xml
 *.pem
 
 # ========================
+# Data
+# ========================
+data/raw/*
+data/processed/*
+data/external/*
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+!data/external/.gitkeep
+
+# ========================
 # Training / ML outputs
 # ========================
-checkpoints/
+checkpoints/*
+logs/*
+experiments/*
+reports/figures/*
+!checkpoints/.gitkeep
+!logs/.gitkeep
+!experiments/.gitkeep
+!reports/figures/.gitkeep
 output/
 model/
 runs/                # e.g. for TensorBoard or wandb

@@ -97,57 +97,10 @@ tasks:
       - task: audit
       - task: unused-libs
 
-  ci:
-    desc: Run CI checks locally
+  # ======== Model Training ========
+  train:linear:
+    desc: Train first linear regression model
+    env:
+      PYTHONPATH: src
     cmds:
-      - task: lint
-      - task: test-cov
-      - task: build
-
-  ci-frozen:
-    desc: Run CI checks with locked dependencies
-    cmds:
-      - task: sync-frozen
-      - task: lint
-      - task: test-cov
-      - task: build
-
-  # ======== Tests ========
-  test:
-    desc: Run tests
-    cmds:
-      - uv run pytest
-
-  test-cov:
-    desc: Run tests with coverage
-    cmds:
-      - uv run pytest --cov --cov-report=term-missing --cov-report=xml
-
-  # ======== Run app ========
-  run:
-    desc: Run the application
-    cmds:
-      - uv run python -m app.main
-
-  # ======== Build ========
-  build:
-    desc: Build package (wheel + sdist)
-    cmds:
-      - uv build
-
-  # ======== Docker ========
-  docker-build:
-    desc: Build Docker image
-    cmds:
-      - docker build -t python-app .
-
-  docker-run:
-    desc: Run Docker container
-    cmds:
-      - docker run -it --rm python-app
-
-  docker:
-    desc: Build and run Docker
-    cmds:
-      - task: docker-build
-      - task:  docker-run
+      - uv run python -m dl_roadmap.training.train_linear
