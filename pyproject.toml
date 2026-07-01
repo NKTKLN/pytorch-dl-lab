@@ -20,6 +20,13 @@ dependencies = [
   "matplotlib>=3.11.0",
   "scikit-learn>=1.9.0",
   "pyyaml>=6.0.3",
+  "appnope>=0.1.4",
+  "debugpy>=1.8.21",
+  "ipykernel>=7.3.0",
+  "jupyter-client>=8.9.1",
+  "nest-asyncio2>=1.7.2",
+  "pyzmq>=27.1.0",
+  "tornado>=6.5.7",
 ]
 
 [dependency-groups]
