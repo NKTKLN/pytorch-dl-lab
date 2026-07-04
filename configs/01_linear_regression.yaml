@@ -1,0 +1,25 @@
+experiment_name: 01_linear_regression
+
+seed: 42
+
+data:
+  n_samples: 1000
+  n_features: 1
+  noise: 0.1
+  batch_size: 32
+
+model:
+  input_dim: 5
+
+training:
+  epochs: 100
+  learning_rate: 0.01
+
+paths:
+  checkpoint_dir: checkpoints/01_linear_regression
+  figures_dir: reports/figures
+
+logging:
+  disable_logging: false
+  log_level: INFO
+  log_path: logs/01_linear_regression/train.log
