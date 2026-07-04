@@ -109,6 +109,10 @@ strict_optional = true
 disallow_untyped_calls = true
 exclude = [".git", "__pycache__", "build", "dist", ".venv", "tmp"]
 
+[[tool.mypy.overrides]]
+module = "seaborn.*"
+ignore_missing_imports = true
+
 [tool.coverage.run]
 branch = true
 source = ["dl_roadmap"]
