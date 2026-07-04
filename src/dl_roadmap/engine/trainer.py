@@ -9,6 +9,7 @@ import torch
 from loguru import logger
 from torch import nn
 from torch.optim import Optimizer
+from tqdm import tqdm
 
 Batch = tuple[torch.Tensor, torch.Tensor]
 LossFn = Callable[[torch.Tensor, torch.Tensor], torch.Tensor]
@@ -20,14 +21,15 @@ class TrainerConfig:
 
     Attributes:
         epochs: Number of training epochs to run.
-        device: Torch device string to run training on (e.g. "cpu", "cuda").
+        device: Torch device string (e.g. "cpu", "cuda"). None auto-selects
+            CUDA if available, otherwise CPU.
         checkpoint_dir: Directory to save checkpoints to. If empty,
             checkpoints are never saved.
         checkpoint_every: Save a checkpoint every N epochs (1 = every epoch).
     """
 
     epochs: int = 1
-    device: str = "cpu"
+    device: str | None = None
     checkpoint_dir: str = ""
     checkpoint_every: int = 1
 
@@ -56,13 +58,21 @@ class Trainer:
             config: Trainer options; defaults to `TrainerConfig()`.
         """
         self.config = config or TrainerConfig()
-        self.device = torch.device(self.config.device)
+
+        self.device = self.config.device
+        if self.device is None:
+            self.device = "cuda" if torch.cuda.is_available() else "cpu"
 
         self.model = model.to(self.device)
         self.optimizer = optimizer
         self.loss_fn = loss_fn
 
         self.history: dict[str, list[float]] = {"train_loss": [], "val_loss": []}
+
+        logger.debug(
+            f"Trainer initialized: model={type(model).__name__}, "
+            f"optimizer={type(optimizer).__name__}, device={self.device}"
+        )
 
     def fit(
         self,
@@ -80,23 +90,38 @@ class Trainer:
             The training history: a mapping of "train_loss"/"val_loss" to
             a list of per-epoch values.
         """
-        for epoch in range(1, self.config.epochs + 1):
+        logger.debug(
+            f"Starting training: epochs={self.config.epochs}, "
+            f"val={'yes' if val_loader is not None else 'no'}, "
+            f"checkpoint_dir='{self.config.checkpoint_dir or 'disabled'}'"
+        )
+
+        pbar = tqdm(
+            range(1, self.config.epochs + 1),
+            desc="Training",
+            ascii=" >=",
+            ncols=100,
+            bar_format="{desc}: [{bar:30}] {n_fmt}/{total_fmt}{postfix}",
+        )
+
+        for epoch in pbar:
             train_loss = self._run_epoch(train_loader, train=True)
             self.history["train_loss"].append(train_loss)
-            message = (
-                f"Epoch {epoch}/{self.config.epochs} - train_loss: {train_loss:.4f}"
-            )
+
+            loss_message = f"train loss: {train_loss:.2f}"
 
             if val_loader is not None:
                 val_loss = self._run_epoch(val_loader, train=False)
                 self.history["val_loss"].append(val_loss)
-                message += f" - val_loss: {val_loss:.4f}"
+                loss_message += f", val loss: {val_loss:.2f}"
 
-            logger.info(message)
+            pbar.set_postfix_str(loss_message)
+            logger.debug(f"Epoch {epoch}/{self.config.epochs} — {loss_message}")
 
             if self.config.checkpoint_dir and epoch % self.config.checkpoint_every == 0:
                 self.save_checkpoint(epoch)
 
+        logger.debug("Training complete")
         return self.history
 
     def _run_epoch(self, loader: Iterable[Batch], train: bool) -> float:
@@ -110,6 +135,8 @@ class Trainer:
         Returns:
             The average loss over all batches.
         """
+        mode = "train" if train else "eval"
+        logger.debug(f"Running epoch in {mode} mode")
         self.model.train(mode=train)
 
         total_loss = 0.0
@@ -131,7 +158,9 @@ class Trainer:
                 total_loss += loss.item()
                 n_batches += 1
 
-        return total_loss / max(n_batches, 1)
+        avg_loss = total_loss / max(n_batches, 1)
+        logger.debug(f"Epoch {mode} pass: batches={n_batches}, avg_loss={avg_loss:.4f}")
+        return avg_loss
 
     def save_checkpoint(self, epoch: int) -> Path:
         """Save model and optimizer state to `config.checkpoint_dir`.
@@ -162,8 +191,7 @@ class Trainer:
         """Restore model and optimizer state from a checkpoint file.
 
         Args:
-            checkpoint_path: Path to a checkpoint file written by
-                `save_checkpoint`.
+            checkpoint_path: Path to a checkpoint file written by `save_checkpoint`.
 
         Returns:
             The epoch number the checkpoint was saved at.
@@ -175,4 +203,6 @@ class Trainer:
         self.model.load_state_dict(checkpoint["model_state_dict"])
         self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
 
-        return int(checkpoint["epoch"])
+        epoch = int(checkpoint["epoch"])
+        logger.debug(f"Loaded checkpoint: {checkpoint_path}, epoch={epoch}")
+        return epoch
