@@ -32,6 +32,8 @@ def plot_training_history(
     train_loss: Sequence[float],
     val_loss: Sequence[float] | None = None,
     ema_alpha: float = 0.2,
+    filename: str | None = None,
+    show_fig: bool = True,
 ) -> None:
     """Plot train/validation loss curves.
 
@@ -45,6 +47,8 @@ def plot_training_history(
         val_loss: Optional per-epoch validation loss values.
         ema_alpha: Smoothing factor passed to the EMA applied to the
             train loss curve.
+        filename: If given, save the figure to this path.
+        show_fig: If True, display the figure with `plt.show()`.
     """
     train_epochs = np.arange(1, len(train_loss) + 1)
     smooth_train_loss = _ema(train_loss, alpha=ema_alpha)
@@ -62,4 +66,9 @@ def plot_training_history(
     plt.legend()
     plt.grid(True, linestyle="--", alpha=0.4)
     plt.tight_layout()
-    plt.show()
+
+    if filename is not None:
+        plt.savefig(filename, dpi=300)
+
+    if show_fig:
+        plt.show()
