@@ -41,4 +41,4 @@ def make_synthetic_regression_dataset(
 
     X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=test_size)
 
-    return X_train, X_val, y_train, y_val, float(real_coef), real_bias
+    return X_train, X_val, y_train, y_val, real_coef, real_bias
