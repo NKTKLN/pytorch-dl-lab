@@ -103,4 +103,4 @@ tasks:
     env:
       PYTHONPATH: src
     cmds:
-      - uv run python -m dl_roadmap.training.train_linear
+      - uv run python -m dl_roadmap.training.train_linear_regression

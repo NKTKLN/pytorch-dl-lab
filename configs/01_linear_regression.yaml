@@ -4,20 +4,18 @@ seed: 42
 
 data:
   n_samples: 1000
-  n_features: 1
+  n_features: 2
   noise: 0.1
   batch_size: 32
-
-model:
-  input_dim: 5
 
 training:
   epochs: 100
   learning_rate: 0.01
-
-paths:
   checkpoint_dir: checkpoints/01_linear_regression
+
+visualization:
   figures_dir: reports/figures
+  show_fig: true
 
 logging:
   disable_logging: false

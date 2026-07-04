@@ -48,11 +48,11 @@ This repository covers the full practical path from basic PyTorch to modern deep
 task sync
 ```
 
-<!-- 3. Run the first training experiment:
+3. Run the first training experiment:
 
 ```bash
 task train:linear
-``` -->
+```
 
 ## 🧪 Development Commands
 
@@ -74,11 +74,11 @@ Run linting and tests together:
 task check
 ```
 
-<!-- Train the first baseline model:
+Train the first baseline model:
 
 ```bash
 task train:linear
-``` -->
+```
 
 ## 📜 License
 
