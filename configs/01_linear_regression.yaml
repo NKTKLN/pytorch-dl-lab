@@ -12,6 +12,8 @@ training:
   epochs: 100
   learning_rate: 0.01
   checkpoint_dir: checkpoints/01_linear_regression
+  checkpoint_every: 1
+  show_progress: true
 
 visualization:
   figures_dir: reports/figures
