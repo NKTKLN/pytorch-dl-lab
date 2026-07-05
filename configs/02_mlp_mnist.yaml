@@ -1,0 +1,23 @@
+experiment_name: 02_mlp_mnist
+
+seed: 42
+
+data:
+  root: data/raw
+  batch_size: 64
+
+training:
+  epochs: 10
+  learning_rate: 0.001
+  checkpoint_dir: checkpoints/02_mlp_mnist
+  checkpoint_every: 1
+  show_progress: true
+
+visualization:
+  figures_dir: reports/figures
+  show_fig: true
+
+logging:
+  disable_logging: false
+  log_level: INFO
+  log_path: logs/02_mlp_mnist/train.log

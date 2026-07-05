@@ -104,3 +104,10 @@ tasks:
       PYTHONPATH: src
     cmds:
       - uv run python -m dl_roadmap.training.train_linear_regression
+
+  train:mlp:
+    desc: Train MLP MNIST classifier
+    env:
+      PYTHONPATH: src
+    cmds:
+      - uv run python -m dl_roadmap.training.train_mlp_mnist
