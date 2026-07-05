@@ -80,7 +80,7 @@ docstring-code-line-length = "dynamic"
 
 [tool.ruff.lint]
 select = ["E", "W", "F", "I", "D", "B", "B9", "C90", "S", "UP", "SIM", "PL", "RUF", "ARG", "PTH"]
-ignore = ["E203", "D100"]
+ignore = ["E203", "D100", "B905"]
 fixable = ["ALL"]
 
 [tool.ruff.lint.pydocstyle]
