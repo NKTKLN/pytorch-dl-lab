@@ -5,6 +5,7 @@ from collections.abc import Sequence
 import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
+from matplotlib.axes import Axes
 
 
 def plot_training_history(
@@ -42,3 +43,33 @@ def plot_training_history(
 
     if show_fig:
         plt.show()
+
+
+def plot_training_history_on_ax(
+    ax: Axes,
+    train_loss: Sequence[float],
+    val_loss: Sequence[float] | None = None,
+    title: str = "Training and Validation Loss",
+) -> None:
+    """Plot train/validation loss curves onto an existing Axes.
+
+    Args:
+        ax: Axes to draw the curves on.
+        train_loss: Per-epoch training loss values.
+        val_loss: Optional per-epoch validation loss values.
+        title: Title to display above the plot.
+    """
+    train_epochs = np.arange(1, len(train_loss) + 1)
+    sns.lineplot(x=train_epochs, y=train_loss, label="train_loss", ax=ax)
+
+    if val_loss is not None:
+        val_epochs = np.arange(1, len(val_loss) + 1)
+        sns.lineplot(x=val_epochs, y=val_loss, label="val_loss", ax=ax)
+
+    ax.set_xlabel("Epoch")
+    ax.set_ylabel("Loss")
+    ax.set_xlim(left=0)
+    ax.set_ylim(bottom=0)
+    ax.set_title(title)
+    ax.legend()
+    ax.grid(True, linestyle="--", alpha=0.4)
