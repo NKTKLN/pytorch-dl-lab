@@ -30,6 +30,7 @@ dependencies = [
   "seaborn>=0.13.2",
   "torcheval>=0.0.7",
   "typer>=0.26.8",
+  "wordfreq>=3.1.1",
 ]
 
 [dependency-groups]
