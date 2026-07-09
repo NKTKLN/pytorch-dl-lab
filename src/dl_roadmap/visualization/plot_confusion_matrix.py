@@ -1,25 +1,26 @@
 import matplotlib.pyplot as plt
-import numpy as np
 import seaborn as sns
-from numpy.typing import NDArray
-from sklearn.metrics import confusion_matrix
+from torch import Tensor
+from torcheval.metrics.functional import multiclass_confusion_matrix
 
 
 def plot_confusion_matrix(
-    y_true: NDArray[np.int64],
-    y_pred: NDArray[np.int64],
+    preds: Tensor,
+    target: Tensor,
+    num_classes: int,
     filename: str | None = None,
     show_fig: bool = True,
 ) -> None:
     """Display a confusion matrix using seaborn heatmap.
 
     Args:
-        y_true: True labels.
-        y_pred: Predicted labels.
+        preds: Predicted class labels.
+        target: True class labels.
+        num_classes: Number of classes.
         filename: If given, save the figure to this path.
         show_fig: If True, display the figure with `plt.show()`.
     """
-    conf_matrix = confusion_matrix(y_true, y_pred)
+    conf_matrix = multiclass_confusion_matrix(preds, target, num_classes)
 
     sns.heatmap(conf_matrix, annot=True, fmt="d", cmap="Blues", cbar=False, square=True)
     plt.xlabel("Predicted Labels")
