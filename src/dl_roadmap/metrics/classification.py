@@ -27,11 +27,28 @@ def evaluate_multiclass_classification(
     Returns:
         Mapping of metric name to its scalar value.
     """
+    num_classes = int(target.max().item() + 1)
+
     return {
         "Accuracy": multiclass_accuracy(preds, target).item(),
-        "Precision": multiclass_precision(preds, target).item(),
-        "Recall": multiclass_recall(preds, target).item(),
-        "F1-score": multiclass_f1_score(preds, target).item(),
+        "Precision_macro": multiclass_precision(
+            preds, target, num_classes=num_classes, average="macro"
+        ).item(),
+        "Recall_macro": multiclass_recall(
+            preds, target, num_classes=num_classes, average="macro"
+        ).item(),
+        "F1_macro": multiclass_f1_score(
+            preds, target, num_classes=num_classes, average="macro"
+        ).item(),
+        "Precision_weighted": multiclass_precision(
+            preds, target, num_classes=num_classes, average="weighted"
+        ).item(),
+        "Recall_weighted": multiclass_recall(
+            preds, target, num_classes=num_classes, average="weighted"
+        ).item(),
+        "F1_weighted": multiclass_f1_score(
+            preds, target, num_classes=num_classes, average="weighted"
+        ).item(),
     }
 
 
@@ -52,5 +69,5 @@ def evaluate_binary_classification(
         "Accuracy": binary_accuracy(preds, target).item(),
         "Precision": binary_precision(preds, target).item(),
         "Recall": binary_recall(preds, target).item(),
-        "F1-score": binary_f1_score(preds, target).item(),
+        "F1": binary_f1_score(preds, target).item(),
     }
