@@ -3,9 +3,7 @@
 from dataclasses import dataclass
 from typing import Any
 
-import numpy as np
 import torch
-from numpy.typing import NDArray
 from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 
@@ -57,7 +55,7 @@ class ClassPredictor:
         self.model = model.to(self.device)
 
     @torch.no_grad()
-    def predict(self, x: torch.Tensor) -> NDArray[np.int64]:
+    def predict(self, x: torch.Tensor) -> torch.Tensor:
         """Predict class indices for a batch of inputs.
 
         Args:
@@ -84,7 +82,7 @@ class ClassPredictor:
 
             predictions.append(prediction)
 
-        return torch.cat(predictions).numpy()
+        return torch.cat(predictions)
 
     def predict_classes(self, x: torch.Tensor) -> list[Any]:
         """Predict class labels for a batch of inputs.

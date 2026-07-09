@@ -109,12 +109,12 @@ def _save_plots(
 
     predictor = ClassPredictor(model)
     X_val = torch.cat([images for images, _ in val_loader])
-    y_val = torch.cat([labels for _, labels in val_loader]).numpy()
+    y_val = torch.cat([labels for _, labels in val_loader])
     y_pred = predictor.predict(X_val)
 
     confusion_path = figures_dir / "confusion-matrix.png"
     plot_confusion_matrix(
-        y_val, y_pred, filename=str(confusion_path), show_fig=show_fig
+        y_pred, y_val, 10, filename=str(confusion_path), show_fig=show_fig
     )
     logger.info(f"Saved confusion matrix: {confusion_path}")
 
