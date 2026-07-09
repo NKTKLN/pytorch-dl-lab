@@ -114,7 +114,7 @@ def _save_plots(
 
     confusion_path = figures_dir / "confusion-matrix.png"
     plot_confusion_matrix(
-        y_pred, y_val, 10, filename=str(confusion_path), show_fig=show_fig
+        y_pred, y_val, filename=str(confusion_path), show_fig=show_fig
     )
     logger.info(f"Saved confusion matrix: {confusion_path}")
 
