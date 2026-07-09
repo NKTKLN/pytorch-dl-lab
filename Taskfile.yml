@@ -111,3 +111,10 @@ tasks:
       PYTHONPATH: src
     cmds:
       - uv run python -m dl_roadmap.training.train_mlp_mnist
+
+  train:cnn:
+    desc: Train CNN Fashion-MNIST classifier
+    env:
+      PYTHONPATH: src
+    cmds:
+      - uv run python -m dl_roadmap.training.train_cnn_fashion_mnist
