@@ -29,6 +29,7 @@ dependencies = [
   "loguru>=0.7.3",
   "seaborn>=0.13.2",
   "torcheval>=0.0.7",
+  "typer>=0.26.8",
 ]
 
 [dependency-groups]
