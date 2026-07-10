@@ -1,9 +1,6 @@
 """Synthetic linear regression dataset generation utilities."""
 
-import random
-
 import torch
-from sklearn.datasets import make_regression
 
 from dl_roadmap.data.train_test_split import train_test_split
 
@@ -13,7 +10,7 @@ def make_synthetic_regression_dataset(
     n_features: int = 1,
     noise: float = 25.0,
     test_size: float = 0.2,
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, float, float]:
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, float]:
     """Generate a synthetic linear regression dataset split into train/val.
 
     Args:
@@ -24,20 +21,17 @@ def make_synthetic_regression_dataset(
 
     Returns:
         A tuple of (X_train, X_val, y_train, y_val, real_coef, real_bias):
-        the train/val tensors and the ground-truth coefficient and bias
+        the train/val tensors and the ground-truth coefficients and bias
         used to generate the data.
     """
-    real_bias = random.random() * 100  # noqa: S311
-    x_numpy, y_numpy, real_coef = make_regression(
-        n_samples=n_samples,
-        n_features=n_features,
-        noise=noise,
-        bias=real_bias,
-        coef=True,
-    )
+    real_coef = torch.rand(n_features) * 100
+    real_bias = (torch.randn(1) * 100).item()
 
-    X = torch.from_numpy(x_numpy).float()
-    y = torch.from_numpy(y_numpy).float().unsqueeze(1)
+    X = torch.randn(n_samples, n_features)
+    y = X @ real_coef + real_bias + torch.randn(n_samples) * noise
+
+    X = X.float()
+    y = y.float().unsqueeze(1)
 
     X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=test_size)
 
