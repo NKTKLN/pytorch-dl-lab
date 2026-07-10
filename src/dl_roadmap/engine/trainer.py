@@ -1,6 +1,7 @@
 """Generic supervised-learning training loop for PyTorch models."""
 
 from collections.abc import Callable, Iterable
+from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -9,6 +10,7 @@ import torch
 from loguru import logger
 from torch import nn
 from torch.optim import Optimizer
+from torch.optim.lr_scheduler import LRScheduler, ReduceLROnPlateau
 from tqdm import tqdm
 
 Batch = tuple[torch.Tensor, torch.Tensor]
@@ -26,6 +28,13 @@ class TrainerConfig:
         checkpoint_dir: Directory to save checkpoints to. If empty,
             checkpoints are never saved.
         checkpoint_every: Save a checkpoint every N epochs (1 = every epoch).
+        patience: Stop training early after this many consecutive epochs
+            without a val_loss improvement greater than `min_delta`. 0
+            disables early stopping. Requires a `val_loader`.
+        min_delta: Minimum decrease in val_loss (vs. the best seen so far)
+            to count as an improvement for early stopping.
+        restore_best_weights: If True, reload the model weights from the
+            best epoch (lowest val_loss) once training ends.
         show_progress: Whether to display a tqdm progress bar during training.
     """
 
@@ -33,6 +42,9 @@ class TrainerConfig:
     device: torch.device | str | None = None
     checkpoint_dir: str = ""
     checkpoint_every: int = 1
+    patience: int = 0
+    min_delta: float = 0.0
+    restore_best_weights: bool = True
     show_progress: bool = True
 
 
@@ -49,6 +61,7 @@ class Trainer:
         model: nn.Module,
         optimizer: Optimizer,
         loss_fn: LossFn,
+        scheduler: LRScheduler | None = None,
         config: TrainerConfig | None = None,
     ) -> None:
         """Initialize the trainer.
@@ -57,6 +70,8 @@ class Trainer:
             model: Model to train; moved to `config.device`.
             optimizer: Optimizer bound to `model`'s parameters.
             loss_fn: Callable computing the loss from (predictions, targets).
+            scheduler: Optional LR scheduler stepped once per epoch. If it is
+                a `ReduceLROnPlateau`, `fit` must be called with a `val_loader`.
             config: Trainer options; defaults to `TrainerConfig()`.
         """
         self.config = config or TrainerConfig()
@@ -68,6 +83,7 @@ class Trainer:
         self.model = model.to(self.device)
         self.optimizer = optimizer
         self.loss_fn = loss_fn
+        self.scheduler = scheduler
 
         self.history: dict[str, list[float]] = {"train_loss": [], "val_loss": []}
 
@@ -84,6 +100,33 @@ class Trainer:
         except TypeError:
             return None
 
+    def _step_scheduler(self, val_loss: float | None = None) -> None:
+        """Advance the LR scheduler by one step.
+
+        Args:
+            val_loss: Current epoch's validation loss. Required when the
+                scheduler is a `ReduceLROnPlateau`, which steps on this
+                metric instead of unconditionally each epoch.
+
+        Raises:
+            ValueError: If the scheduler is a `ReduceLROnPlateau` but no
+                `val_loss` was provided (i.e. `fit` was called without a
+                `val_loader`).
+        """
+        if self.scheduler is None:
+            return
+
+        if isinstance(self.scheduler, ReduceLROnPlateau):
+            if val_loss is None:
+                raise ValueError(
+                    "ReduceLROnPlateau requires a validation loss; "
+                    "call fit() with a val_loader."
+                )
+
+            self.scheduler.step(float(val_loss))
+        else:
+            self.scheduler.step()
+
     def fit(
         self,
         train_loader: Iterable[Batch],
@@ -94,12 +137,20 @@ class Trainer:
         Args:
             train_loader: Batches of (inputs, targets) used for training.
             val_loader: Optional batches of (inputs, targets) used for
-                per-epoch validation.
+                per-epoch validation. Required if `config.patience > 0`.
 
         Returns:
             The training history: a mapping of "train_loss"/"val_loss" to
             a list of per-epoch values.
+
+        Raises:
+            ValueError: If `config.patience > 0` but no `val_loader` is given,
+                or if `scheduler` is a `ReduceLROnPlateau` and no `val_loader`
+                is given.
         """
+        if self.config.patience > 0 and val_loader is None:
+            raise ValueError("Early stopping (patience > 0) requires a val_loader.")
+
         logger.debug(
             f"Starting training: epochs={self.config.epochs}, "
             f"val={'yes' if val_loader is not None else 'no'}, "
@@ -122,7 +173,11 @@ class Trainer:
             leave=True,
             disable=not self.config.show_progress,
         )
+
+        best_val_loss = float("inf")
         last_val_loss: float | None = None
+        best_state: dict[str, Any] | None = None
+        epochs_without_improvement = 0
 
         for epoch in range(1, self.config.epochs + 1):
             pbar.set_description(f"Epoch {epoch:>{epoch_width}}/{self.config.epochs}")
@@ -137,16 +192,39 @@ class Trainer:
 
             loss_data = {"train_loss": f"{train_loss:.4g}"}
 
+            val_loss: float | None = None
             if val_loader is not None:
                 val_loss = self._run_epoch(val_loader, train=False)
                 self.history["val_loss"].append(val_loss)
                 last_val_loss = val_loss
                 loss_data["val_loss"] = f"{val_loss:.4g}"
 
+            self._step_scheduler(val_loss)
             pbar.set_postfix(**loss_data)
+
+            if val_loss is not None and self.config.patience > 0:
+                epochs_without_improvement += 1
+
+                if val_loss < best_val_loss - self.config.min_delta:
+                    best_val_loss = val_loss
+                    epochs_without_improvement = 0
+                    if self.config.restore_best_weights:
+                        best_state = deepcopy(self.model.state_dict())
+
+                if epochs_without_improvement >= self.config.patience:
+                    logger.info(
+                        f"Early stopping at epoch {epoch}: no val_loss "
+                        f"improvement for {epochs_without_improvement} epochs"
+                    )
+                    pbar.set_postfix(**loss_data, status="early stopped")
+                    break
 
             if self.config.checkpoint_dir and epoch % self.config.checkpoint_every == 0:
                 self.save_checkpoint(epoch)
+
+        if self.config.restore_best_weights and best_state is not None:
+            self.model.load_state_dict(best_state)
+            logger.debug(f"Restored best model weights: val_loss={best_val_loss:.4g}")
 
         pbar.close()
         logger.debug("Training complete")
