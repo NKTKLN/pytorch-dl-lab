@@ -54,6 +54,11 @@ class Trainer:
     Wraps the train/validate loop, checkpointing, and logging so
     individual experiment scripts only need to assemble a model,
     optimizer, loss function, and dataloaders.
+
+    Attributes:
+        history: Per-epoch "train_loss"/"val_loss" values, populated by `fit`.
+        best_epoch: The 1-indexed epoch with the lowest val_loss seen so far,
+            set by `fit` when `config.patience > 0`. None until then.
     """
 
     def __init__(
@@ -86,6 +91,7 @@ class Trainer:
         self.scheduler = scheduler
 
         self.history: dict[str, list[float]] = {"train_loss": [], "val_loss": []}
+        self.best_epoch: int | None = None
 
         logger.debug(
             f"Trainer initialized: model={type(model).__name__}, "
@@ -207,6 +213,7 @@ class Trainer:
 
                 if val_loss < best_val_loss - self.config.min_delta:
                     best_val_loss = val_loss
+                    self.best_epoch = epoch
                     epochs_without_improvement = 0
                     if self.config.restore_best_weights:
                         best_state = deepcopy(self.model.state_dict())
