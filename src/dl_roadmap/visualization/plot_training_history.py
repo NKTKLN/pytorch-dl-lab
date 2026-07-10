@@ -31,7 +31,6 @@ def plot_training_history(
 
     plt.xlabel("Epoch")
     plt.ylabel("Loss")
-    plt.xlim(left=0)
     plt.ylim(bottom=0)
     plt.title("Training and Validation Loss")
     plt.legend()
