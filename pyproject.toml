@@ -31,6 +31,7 @@ dependencies = [
   "torcheval>=0.0.7",
   "typer>=0.26.8",
   "wordfreq>=3.1.1",
+  "datasets>=5.0.0",
 ]
 
 [dependency-groups]
