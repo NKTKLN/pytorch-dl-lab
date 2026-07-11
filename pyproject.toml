@@ -91,7 +91,7 @@ convention = "google"
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**.py" = ["S101", "D", "PLR2004"]  # assert, docstrings, magic values in tests
-"**/*.ipynb" = ["T201"]                   # print
+"**/*.ipynb" = ["T201", "PLR0913"]        # print, too many arguments in notebooks
 
 [tool.mypy]
 mypy_path = ["src"]
