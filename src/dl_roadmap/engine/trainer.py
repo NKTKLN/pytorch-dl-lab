@@ -44,7 +44,7 @@ class TrainerConfig:
     checkpoint_every: int = 1
     patience: int = 0
     min_delta: float = 0.0
-    restore_best_weights: bool = True
+    restore_best_weights: bool = False
     show_progress: bool = True
 
 
@@ -137,17 +137,13 @@ class Trainer:
         self,
         train_loader: Iterable[Batch],
         val_loader: Iterable[Batch] | None = None,
-    ) -> dict[str, list[float]]:
+    ) -> None:
         """Run the training loop for `config.epochs` epochs.
 
         Args:
             train_loader: Batches of (inputs, targets) used for training.
             val_loader: Optional batches of (inputs, targets) used for
                 per-epoch validation. Required if `config.patience > 0`.
-
-        Returns:
-            The training history: a mapping of "train_loss"/"val_loss" to
-            a list of per-epoch values.
 
         Raises:
             ValueError: If `config.patience > 0` but no `val_loader` is given,
@@ -235,7 +231,6 @@ class Trainer:
 
         pbar.close()
         logger.debug("Training complete")
-        return self.history
 
     def _run_epoch(
         self,
