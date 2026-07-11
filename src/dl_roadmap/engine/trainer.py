@@ -53,7 +53,9 @@ class Trainer:
 
     Wraps the train/validate loop, checkpointing, and logging so
     individual experiment scripts only need to assemble a model,
-    optimizer, loss function, and dataloaders.
+    optimizer, loss function, and dataloaders. Subclasses that need the
+    model's forward call to see more than just the inputs (e.g. teacher
+    forcing) should override `_forward` rather than `_run_epoch`.
 
     Attributes:
         history: Per-epoch "train_loss"/"val_loss" values, populated by `fit`.
@@ -132,6 +134,25 @@ class Trainer:
             self.scheduler.step(float(val_loss))
         else:
             self.scheduler.step()
+
+    def _forward(
+        self, inputs: torch.Tensor, _targets: torch.Tensor, _train: bool
+    ) -> torch.Tensor:
+        """Computes model predictions for a batch.
+
+        Override to pass extra context into the model's forward call, e.g.
+        ground-truth targets for teacher forcing in a seq2seq decoder.
+        Ignored here; the base implementation only needs `inputs`.
+
+        Args:
+            inputs: Batch inputs, already moved to `self.device`.
+            _targets: Batch targets, already moved to `self.device`.
+            _train: Whether this call happens during a training pass.
+
+        Returns:
+            Model predictions, passed to `self.loss_fn` alongside targets.
+        """
+        return self.model(inputs)  # type: ignore[no-any-return]
 
     def fit(
         self,
@@ -266,7 +287,7 @@ class Trainer:
                 inputs = batch_inputs.to(self.device)
                 targets = batch_targets.to(self.device)
 
-                predictions = self.model(inputs)
+                predictions = self._forward(inputs, targets, train)
                 loss = self.loss_fn(predictions, targets)
 
                 if train:
