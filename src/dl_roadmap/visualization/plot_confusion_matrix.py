@@ -1,7 +1,11 @@
+"""Plotting utilities for visualizing classification confusion matrices."""
+
 import matplotlib.pyplot as plt
 import seaborn as sns
 from torch import Tensor
 from torcheval.metrics.functional import multiclass_confusion_matrix
+
+_purple_cmap = sns.light_palette("#7e44d3", as_cmap=True)
 
 
 def plot_confusion_matrix(
@@ -21,7 +25,9 @@ def plot_confusion_matrix(
     num_classes = int(target.max().item() + 1)
     conf_matrix = multiclass_confusion_matrix(preds, target, num_classes)
 
-    sns.heatmap(conf_matrix, annot=True, fmt="d", cmap="Blues", cbar=False, square=True)
+    sns.heatmap(
+        conf_matrix, annot=True, fmt="d", cmap=_purple_cmap, cbar=False, square=True
+    )
     plt.xlabel("Predicted Labels")
     plt.ylabel("True Labels")
     plt.title("Confusion Matrix")

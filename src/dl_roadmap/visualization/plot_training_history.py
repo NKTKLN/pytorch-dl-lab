@@ -7,6 +7,12 @@ import numpy as np
 import seaborn as sns
 from matplotlib.axes import Axes
 
+from dl_roadmap.visualization.palettes import palette_11
+
+_TRAIN_COLOR = palette_11[4]  # blue
+_VAL_COLOR = palette_11[5]  # pink
+_BEST_EPOCH_COLOR = palette_11[3]  # orange
+
 
 def plot_training_history(
     train_loss: Sequence[float],
@@ -27,11 +33,15 @@ def plot_training_history(
     _, ax = plt.subplots()
 
     train_epochs = np.arange(1, len(train_loss) + 1)
-    sns.lineplot(x=train_epochs, y=train_loss, label="train_loss", ax=ax)
+    sns.lineplot(
+        x=train_epochs, y=train_loss, label="train_loss", ax=ax, color=_TRAIN_COLOR
+    )
 
     if val_loss is not None:
         val_epochs = np.arange(1, len(val_loss) + 1)
-        sns.lineplot(x=val_epochs, y=val_loss, label="val_loss", ax=ax)
+        sns.lineplot(
+            x=val_epochs, y=val_loss, label="val_loss", ax=ax, color=_VAL_COLOR
+        )
 
     if best_epoch is not None:
         ax.axvline(
@@ -39,7 +49,7 @@ def plot_training_history(
             linestyle="--",
             linewidth=1.5,
             label=f"best_epoch ({best_epoch})",
-            c="r",
+            c=_BEST_EPOCH_COLOR,
         )
 
     plt.xlabel("Epoch")
@@ -75,11 +85,15 @@ def plot_training_history_on_ax(
         title: Title to display above the plot.
     """
     train_epochs = np.arange(1, len(train_loss) + 1)
-    sns.lineplot(x=train_epochs, y=train_loss, label="train_loss", ax=ax)
+    sns.lineplot(
+        x=train_epochs, y=train_loss, label="train_loss", ax=ax, color=_TRAIN_COLOR
+    )
 
     if val_loss is not None:
         val_epochs = np.arange(1, len(val_loss) + 1)
-        sns.lineplot(x=val_epochs, y=val_loss, label="val_loss", ax=ax)
+        sns.lineplot(
+            x=val_epochs, y=val_loss, label="val_loss", ax=ax, color=_VAL_COLOR
+        )
 
     if best_epoch is not None:
         ax.axvline(
@@ -87,7 +101,7 @@ def plot_training_history_on_ax(
             linestyle="--",
             linewidth=1.5,
             label=f"best_epoch ({best_epoch})",
-            c="r",
+            c=_BEST_EPOCH_COLOR,
         )
 
     ax.set_xlabel("Epoch")
