@@ -32,6 +32,7 @@ dependencies = [
   "typer>=0.26.8",
   "wordfreq>=3.1.1",
   "datasets>=5.0.0",
+  "sentencepiece>=0.2.2",
 ]
 
 [dependency-groups]
@@ -88,6 +89,12 @@ fixable = ["ALL"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
+
+[tool.ruff.lint.pylint]
+max-args = 6
+
+[tool.ruff.lint.mccabe]
+max-complexity = 11
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**.py" = ["S101", "D", "PLR2004"]   # assert, docstrings, magic values in tests

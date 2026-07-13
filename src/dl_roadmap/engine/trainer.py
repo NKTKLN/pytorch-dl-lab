@@ -15,6 +15,7 @@ from tqdm import tqdm
 
 Batch = tuple[torch.Tensor, torch.Tensor]
 LossFn = Callable[[torch.Tensor, torch.Tensor], torch.Tensor]
+EpochCallback = Callable[[int, float, float | None], None]
 
 
 @dataclass
@@ -61,6 +62,8 @@ class Trainer:
         history: Per-epoch "train_loss"/"val_loss" values, populated by `fit`.
         best_epoch: The 1-indexed epoch with the lowest val_loss seen so far,
             set by `fit` when `config.patience > 0`. None until then.
+        callbacks: Callables invoked once per epoch, after the LR scheduler
+            step and before early-stopping bookkeeping.
     """
 
     def __init__(
@@ -70,6 +73,7 @@ class Trainer:
         loss_fn: LossFn,
         scheduler: LRScheduler | None = None,
         config: TrainerConfig | None = None,
+        callbacks: list[EpochCallback] | None = None,
     ) -> None:
         """Initialize the trainer.
 
@@ -80,6 +84,11 @@ class Trainer:
             scheduler: Optional LR scheduler stepped once per epoch. If it is
                 a `ReduceLROnPlateau`, `fit` must be called with a `val_loader`.
             config: Trainer options; defaults to `TrainerConfig()`.
+            callbacks: Callables of the form `(epoch, train_loss, val_loss)`,
+                each invoked once at the end of every epoch (`val_loss` is
+                None when `fit` is called without a `val_loader`). Useful for
+                per-epoch side effects the trainer doesn't know about itself,
+                e.g. decaying a model's teacher-forcing ratio.
         """
         self.config = config or TrainerConfig()
 
@@ -91,6 +100,7 @@ class Trainer:
         self.optimizer = optimizer
         self.loss_fn = loss_fn
         self.scheduler = scheduler
+        self.callbacks = callbacks or []
 
         self.history: dict[str, list[float]] = {"train_loss": [], "val_loss": []}
         self.best_epoch: int | None = None
@@ -223,6 +233,10 @@ class Trainer:
                 loss_data["val_loss"] = f"{val_loss:.4g}"
 
             self._step_scheduler(val_loss)
+
+            for callback in self.callbacks:
+                callback(epoch, train_loss, val_loss)
+
             pbar.set_postfix(**loss_data)
 
             if val_loss is not None and self.config.patience > 0:
