@@ -83,15 +83,15 @@ docstring-code-line-length = "dynamic"
 
 [tool.ruff.lint]
 select = ["E", "W", "F", "I", "D", "B", "B9", "C90", "S", "UP", "SIM", "PL", "RUF", "ARG", "PTH"]
-ignore = ["E203", "D100", "B905"]
+ignore = ["E203", "D100", "B905", "RUF001"]
 fixable = ["ALL"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**.py" = ["S101", "D", "PLR2004"]  # assert, docstrings, magic values in tests
-"**/*.ipynb" = ["T201", "PLR0913"]        # print, too many arguments in notebooks
+"tests/**.py" = ["S101", "D", "PLR2004"]   # assert, docstrings, magic values in tests
+"**/*.ipynb" = ["T201", "PLR0913", "S101"] # print, too many arguments in notebooks, assert
 
 [tool.mypy]
 mypy_path = ["src"]
