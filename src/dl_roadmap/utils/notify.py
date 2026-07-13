@@ -6,6 +6,10 @@ python-dotenv, see `.env.example`). By default, missing credentials are
 treated as "notifications are off": a warning is logged and the call is
 a silent no-op, so notebooks and scripts don't crash just because Telegram
 isn't configured. Pass `strict=True` to raise instead.
+
+An optional `TELEGRAM_PROXY` environment variable can be set to route
+requests through a proxy (e.g. `socks5://user:pass@host:port` or
+`http://host:port`), for cases where api.telegram.org is blocked directly.
 """
 
 import os
@@ -59,11 +63,29 @@ def _get_credentials(*, strict: bool = False) -> tuple[str, str] | None:
     return bot_token, chat_id
 
 
+def _get_proxies() -> dict[str, str] | None:
+    """Read an optional Telegram proxy URL from the environment.
+
+    Returns:
+        A `requests`-style proxies dict (same proxy for http/https) built
+        from `TELEGRAM_PROXY`, or None if the variable is unset.
+    """
+    load_dotenv()
+
+    proxy = os.getenv("TELEGRAM_PROXY")
+    if not proxy:
+        return None
+
+    return {"http": proxy, "https": proxy}
+
+
 def tg_notify(message: str, timeout: float = 10.0, *, strict: bool = False) -> None:
     """Send a text message to the configured Telegram chat.
 
     If Telegram credentials are not configured, this logs a warning and
-    returns without sending anything, unless `strict` is set.
+    returns without sending anything, unless `strict` is set. If the
+    `TELEGRAM_PROXY` environment variable is set, the request is routed
+    through that proxy.
 
     Args:
         message: Text of the message to send.
@@ -87,6 +109,7 @@ def tg_notify(message: str, timeout: float = 10.0, *, strict: bool = False) -> N
         TELEGRAM_API_URL.format(token=bot_token),
         json={"chat_id": chat_id, "text": message},
         timeout=timeout,
+        proxies=_get_proxies(),
     )
     response.raise_for_status()
 
