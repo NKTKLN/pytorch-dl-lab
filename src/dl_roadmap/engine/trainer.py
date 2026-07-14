@@ -9,6 +9,7 @@ from typing import Any
 import torch
 from loguru import logger
 from torch import nn
+from torch.nn.utils import clip_grad_norm_
 from torch.optim import Optimizer
 from torch.optim.lr_scheduler import LRScheduler, ReduceLROnPlateau
 from tqdm import tqdm
@@ -37,6 +38,9 @@ class TrainerConfig:
         restore_best_weights: If True, reload the model weights from the
             best epoch (lowest val_loss) once training ends.
         show_progress: Whether to display a tqdm progress bar during training.
+        grad_clip_norm: Max gradient norm for `clip_grad_norm_`, applied
+            after `backward()` and before `optimizer.step()`. None disables
+            gradient clipping.
     """
 
     epochs: int = 1
@@ -47,6 +51,7 @@ class TrainerConfig:
     min_delta: float = 0.0
     restore_best_weights: bool = False
     show_progress: bool = True
+    grad_clip_norm: float | None = None
 
 
 class Trainer:
@@ -307,6 +312,13 @@ class Trainer:
                 if train:
                     self.optimizer.zero_grad()
                     loss.backward()  # type: ignore[no-untyped-call]
+
+                    if self.config.grad_clip_norm is not None:
+                        clip_grad_norm_(
+                            self.model.parameters(),
+                            max_norm=self.config.grad_clip_norm,
+                        )
+
                     self.optimizer.step()
 
                 total_loss += loss.item()
