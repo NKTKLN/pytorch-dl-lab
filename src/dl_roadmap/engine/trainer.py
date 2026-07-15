@@ -205,7 +205,7 @@ class Trainer:
         )
         pbar = tqdm(
             total=total_steps,
-            desc=f"Epoch {1:>{epoch_width}}/{self.config.epochs}",
+            desc=f"epoch {1:>{epoch_width}}/{self.config.epochs}",
             ascii=" >=",
             bar_format=bar_format,
             leave=True,
@@ -218,7 +218,7 @@ class Trainer:
         epochs_without_improvement = 0
 
         for epoch in range(1, self.config.epochs + 1):
-            pbar.set_description(f"Epoch {epoch:>{epoch_width}}/{self.config.epochs}")
+            pbar.set_description(f"epoch {epoch:>{epoch_width}}/{self.config.epochs}")
 
             train_loss = self._run_epoch(
                 train_loader,
@@ -236,6 +236,7 @@ class Trainer:
                 self.history["val_loss"].append(val_loss)
                 last_val_loss = val_loss
                 loss_data["val_loss"] = f"{val_loss:.4g}"
+                loss_data["loss_gap"] = f"{abs(train_loss - val_loss):.4g}"  # TODO
 
             self._step_scheduler(val_loss)
 
@@ -330,6 +331,7 @@ class Trainer:
                     postfix = {"train_loss": f"{running_loss:.4g}"}
                     if last_val_loss is not None:
                         postfix["val_loss"] = f"{last_val_loss:.4g}"
+                        postfix["loss_gap"] = f"{abs(running_loss - last_val_loss):.4g}"  # TODO
 
                     pbar.set_postfix(**postfix)
                     pbar.update(1)
