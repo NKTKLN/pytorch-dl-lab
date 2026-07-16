@@ -236,7 +236,6 @@ class Trainer:
                 self.history["val_loss"].append(val_loss)
                 last_val_loss = val_loss
                 loss_data["val_loss"] = f"{val_loss:.4g}"
-                loss_data["loss_gap"] = f"{abs(train_loss - val_loss):.4g}"  # TODO
 
             self._step_scheduler(val_loss)
 
@@ -331,7 +330,6 @@ class Trainer:
                     postfix = {"train_loss": f"{running_loss:.4g}"}
                     if last_val_loss is not None:
                         postfix["val_loss"] = f"{last_val_loss:.4g}"
-                        postfix["loss_gap"] = f"{abs(running_loss - last_val_loss):.4g}"  # TODO
 
                     pbar.set_postfix(**postfix)
                     pbar.update(1)
