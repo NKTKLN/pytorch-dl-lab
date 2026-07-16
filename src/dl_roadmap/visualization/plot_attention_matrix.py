@@ -1,5 +1,7 @@
 """Plotting utilities for visualizing seq2seq attention weights."""
 
+from pathlib import Path
+
 import matplotlib.pyplot as plt
 import seaborn as sns
 from torch import Tensor
@@ -11,7 +13,7 @@ def plot_attention_matrix(
     input_tokens: list[str],
     output_tokens: list[str],
     attentions: Tensor,
-    filename: str | None = None,
+    filename: str | Path | None = None,
     show_fig: bool = True,
 ) -> None:
     """Plots an attention heatmap between input and output subword tokens.

@@ -1,6 +1,7 @@
 """Training history plotting utilities."""
 
 from collections.abc import Sequence
+from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -18,7 +19,7 @@ def plot_training_history(
     train_loss: Sequence[float],
     val_loss: Sequence[float] | None = None,
     best_epoch: int | None = None,
-    filename: str | None = None,
+    filename: str | Path | None = None,
     show_fig: bool = True,
 ) -> None:
     """Plot train/validation loss curves.
