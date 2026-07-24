@@ -14,6 +14,8 @@ from torch.optim import Optimizer
 from torch.optim.lr_scheduler import LRScheduler, ReduceLROnPlateau
 from tqdm import tqdm
 
+from dl_roadmap.engine.early_stopping import EarlyStopping
+
 Batch = tuple[torch.Tensor, torch.Tensor]
 LossFn = Callable[[torch.Tensor, torch.Tensor], torch.Tensor]
 EpochCallback = Callable[[int, float, float | None], None]
@@ -30,11 +32,6 @@ class TrainerConfig:
         checkpoint_dir: Directory to save checkpoints to. If empty,
             checkpoints are never saved.
         checkpoint_every: Save a checkpoint every N epochs (1 = every epoch).
-        patience: Stop training early after this many consecutive epochs
-            without a val_loss improvement greater than `min_delta`. 0
-            disables early stopping. Requires a `val_loader`.
-        min_delta: Minimum decrease in val_loss (vs. the best seen so far)
-            to count as an improvement for early stopping.
         restore_best_weights: If True, reload the model weights from the
             best epoch (lowest val_loss) once training ends.
         show_progress: Whether to display a tqdm progress bar during training.
@@ -47,8 +44,6 @@ class TrainerConfig:
     device: torch.device | str | None = None
     checkpoint_dir: str = ""
     checkpoint_every: int = 1
-    patience: int = 0
-    min_delta: float = 0.0
     restore_best_weights: bool = False
     show_progress: bool = True
     grad_clip_norm: float | None = None
@@ -62,16 +57,9 @@ class Trainer:
     optimizer, loss function, and dataloaders. Subclasses that need the
     model's forward call to see more than just the inputs (e.g. teacher
     forcing) should override `_forward` rather than `_run_epoch`.
-
-    Attributes:
-        history: Per-epoch "train_loss"/"val_loss" values, populated by `fit`.
-        best_epoch: The 1-indexed epoch with the lowest val_loss seen so far,
-            set by `fit` when `config.patience > 0`. None until then.
-        callbacks: Callables invoked once per epoch, after the LR scheduler
-            step and before early-stopping bookkeeping.
     """
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         model: nn.Module,
         optimizer: Optimizer,
@@ -79,6 +67,7 @@ class Trainer:
         scheduler: LRScheduler | None = None,
         config: TrainerConfig | None = None,
         callbacks: list[EpochCallback] | None = None,
+        early_stopping: EarlyStopping | None = None,
     ) -> None:
         """Initialize the trainer.
 
@@ -94,6 +83,9 @@ class Trainer:
                 None when `fit` is called without a `val_loader`). Useful for
                 per-epoch side effects the trainer doesn't know about itself,
                 e.g. decaying a model's teacher-forcing ratio.
+            early_stopping: Optional strategy deciding when to stop training
+                and which epoch counts as best. Requires `fit` to be called
+                with a `val_loader`.
         """
         self.config = config or TrainerConfig()
 
@@ -106,9 +98,9 @@ class Trainer:
         self.loss_fn = loss_fn
         self.scheduler = scheduler
         self.callbacks = callbacks or []
+        self.early_stopping = early_stopping
 
         self.history: dict[str, list[float]] = {"train_loss": [], "val_loss": []}
-        self.best_epoch: int | None = None
 
         logger.debug(
             f"Trainer initialized: model={type(model).__name__}, "
@@ -179,15 +171,15 @@ class Trainer:
         Args:
             train_loader: Batches of (inputs, targets) used for training.
             val_loader: Optional batches of (inputs, targets) used for
-                per-epoch validation. Required if `config.patience > 0`.
+                per-epoch validation. Required if `early_stopping` is set.
 
         Raises:
-            ValueError: If `config.patience > 0` but no `val_loader` is given,
-                or if `scheduler` is a `ReduceLROnPlateau` and no `val_loader`
-                is given.
+            ValueError: If `early_stopping` is set but no `val_loader` is
+                given, or if `scheduler` is a `ReduceLROnPlateau` and no
+                `val_loader` is given.
         """
-        if self.config.patience > 0 and val_loader is None:
-            raise ValueError("Early stopping (patience > 0) requires a val_loader.")
+        if self.early_stopping is not None and val_loader is None:
+            raise ValueError("early_stopping requires a val_loader.")
 
         logger.debug(
             f"Starting training: epochs={self.config.epochs}, "
@@ -212,9 +204,7 @@ class Trainer:
             disable=not self.config.show_progress,
         )
 
-        best_val_loss = float("inf")
         best_state: dict[str, Any] | None = None
-        epochs_without_improvement = 0
 
         for epoch in range(1, self.config.epochs + 1):
             pbar.set_description(f"epoch {epoch:>{epoch_width}}/{self.config.epochs}")
@@ -241,21 +231,13 @@ class Trainer:
 
             pbar.set_postfix(**loss_data)
 
-            if val_loss is not None and self.config.patience > 0:
-                epochs_without_improvement += 1
+            if self.early_stopping is not None:
+                self.early_stopping.update(epoch, train_loss, val_loss, self.history)
 
-                if val_loss < best_val_loss - self.config.min_delta:
-                    best_val_loss = val_loss
-                    self.best_epoch = epoch
-                    epochs_without_improvement = 0
-                    if self.config.restore_best_weights:
-                        best_state = deepcopy(self.model.state_dict())
+                if self.early_stopping.is_best and self.config.restore_best_weights:
+                    best_state = deepcopy(self.model.state_dict())
 
-                if epochs_without_improvement >= self.config.patience:
-                    logger.info(
-                        f"Early stopping at epoch {epoch}: no val_loss "
-                        f"improvement for {epochs_without_improvement} epochs"
-                    )
+                if self.early_stopping.should_stop:
                     pbar.set_postfix(**loss_data, status="early stopped")
                     break
 
@@ -264,7 +246,10 @@ class Trainer:
 
         if self.config.restore_best_weights and best_state is not None:
             self.model.load_state_dict(best_state)
-            logger.debug(f"Restored best model weights: val_loss={best_val_loss:.4g}")
+            logger.debug(
+                "Restored best model weights from epoch "
+                f"{self.early_stopping.best_epoch}"
+            )
 
         pbar.close()
         logger.debug("Training complete")
