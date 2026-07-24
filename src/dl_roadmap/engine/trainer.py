@@ -213,7 +213,6 @@ class Trainer:
         )
 
         best_val_loss = float("inf")
-        last_val_loss: float | None = None
         best_state: dict[str, Any] | None = None
         epochs_without_improvement = 0
 
@@ -224,7 +223,6 @@ class Trainer:
                 train_loader,
                 train=True,
                 pbar=pbar,
-                last_val_loss=last_val_loss,
             )
             self.history["train_loss"].append(train_loss)
 
@@ -234,7 +232,6 @@ class Trainer:
             if val_loader is not None:
                 val_loss = self._run_epoch(val_loader, train=False)
                 self.history["val_loss"].append(val_loss)
-                last_val_loss = val_loss
                 loss_data["val_loss"] = f"{val_loss:.4g}"
 
             self._step_scheduler(val_loss)
@@ -277,7 +274,6 @@ class Trainer:
         loader: Iterable[Batch],
         train: bool,
         pbar: Any | None = None,
-        last_val_loss: float | None = None,
     ) -> float:
         """Run a single train or evaluation pass over `loader`.
 
@@ -287,9 +283,6 @@ class Trainer:
                 otherwise run in evaluation mode under `torch.no_grad()`.
             pbar: Progress bar to update with running loss after each batch.
                 If None, no progress bar is updated.
-            last_val_loss: Validation loss from the previous epoch, shown in
-                the progress bar postfix alongside the running train loss.
-                None hides it (e.g. before the first validation pass).
 
         Returns:
             The average loss over all batches.
@@ -328,7 +321,8 @@ class Trainer:
                     running_loss = total_loss / n_batches
 
                     postfix = {"train_loss": f"{running_loss:.4g}"}
-                    if last_val_loss is not None:
+                    if self.history["val_loss"]:
+                        last_val_loss = self.history["val_loss"][-1]
                         postfix["val_loss"] = f"{last_val_loss:.4g}"
 
                     pbar.set_postfix(**postfix)
