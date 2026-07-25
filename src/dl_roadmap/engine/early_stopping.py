@@ -261,13 +261,14 @@ class CombinedEarlyStopping(EarlyStopping):
         for strategy in self.strategies:
             strategy.update(epoch, train_loss, val_loss, history)
 
-        flags = [s.should_stop for s in self.strategies]
-        self.should_stop = any(flags) if self.combine == "any" else all(flags)
+        stop_flags = [s.should_stop for s in self.strategies]
+        self.should_stop = any(stop_flags) if self.combine == "any" else all(stop_flags)
         if self.should_stop:
             logger.info(
                 f"CombinedEarlyStopping ({self.combine}): should stop at epoch {epoch}"
             )
 
-        self.is_best = all(s.is_best for s in self.strategies)
+        best_flags = [s.is_best for s in self.strategies]
+        self.is_best = any(best_flags) if self.combine == "any" else all(best_flags)
         if self.is_best:
             self.best_epoch = epoch
