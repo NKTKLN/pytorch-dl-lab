@@ -4,6 +4,7 @@ from dl_roadmap.engine.class_predictor import ClassPredictor, PredictorConfig
 from dl_roadmap.engine.early_stopping import (
     CombinedEarlyStopping,
     EarlyStopping,
+    GapThresholdEarlyStopping,
     GeneralizationGapEarlyStopping,
     ThresholdEarlyStopping,
     ValLossEarlyStopping,
@@ -14,6 +15,7 @@ __all__ = [
     "ClassPredictor",
     "CombinedEarlyStopping",
     "EarlyStopping",
+    "GapThresholdEarlyStopping",
     "GeneralizationGapEarlyStopping",
     "PredictorConfig",
     "ThresholdEarlyStopping",

@@ -216,6 +216,73 @@ class GeneralizationGapEarlyStopping(ThresholdEarlyStopping):
         return abs(val_loss - train_loss)
 
 
+class GapThresholdEarlyStopping(EarlyStopping):
+    """Stops once the val/train loss gap exceeds a fixed threshold.
+
+    Unlike `GeneralizationGapEarlyStopping`, which tracks whether the gap is
+    still shrinking, this enforces an absolute cap on the gap.
+    """
+
+    def __init__(self, patience: int, threshold: float) -> None:
+        """Initialize the strategy.
+
+        Args:
+            patience: Number of consecutive epochs the gap must exceed
+                `threshold` before `should_stop` is set.
+            threshold: Maximum tolerated `abs(val_loss - train_loss)`.
+
+        Raises:
+            ValueError: If `patience` is less than 1.
+        """
+        super().__init__()
+
+        if patience < 1:
+            raise ValueError("patience must be >= 1")
+
+        self.patience = patience
+        self.threshold = threshold
+
+        self._epochs_over_threshold = 0
+
+    def update(
+        self,
+        epoch: int,
+        train_loss: float,
+        val_loss: float | None,
+        _history: dict[str, list[float]],
+    ) -> None:
+        """Update stopping state with the results of one epoch.
+
+        Args:
+            epoch: The 1-indexed epoch that just finished.
+            train_loss: Average training loss for this epoch.
+            val_loss: Average validation loss for this epoch, or None if
+                no validation loader was used.
+            _history: Per-epoch "train_loss"/"val_loss" values recorded so
+                far. Unused.
+        """
+        self.is_best = False
+
+        if val_loss is None:
+            return
+
+        gap = abs(val_loss - train_loss)
+        if gap > self.threshold:
+            self._epochs_over_threshold += 1
+        else:
+            self._epochs_over_threshold = 0
+            self.best_epoch = epoch
+            self.is_best = True
+
+        self.should_stop = self._epochs_over_threshold >= self.patience
+        if self.should_stop:
+            logger.info(
+                f"{type(self).__name__}: should stop at epoch {epoch}: "
+                f"gap={gap:.4g} above threshold={self.threshold} for "
+                f"{self._epochs_over_threshold} epochs"
+            )
+
+
 class CombinedEarlyStopping(EarlyStopping):
     """Combines multiple early stopping strategies into one.
 
