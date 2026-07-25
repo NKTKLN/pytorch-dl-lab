@@ -220,7 +220,10 @@ class GapThresholdEarlyStopping(EarlyStopping):
     """Stops once the val/train loss gap exceeds a fixed threshold.
 
     Unlike `GeneralizationGapEarlyStopping`, which tracks whether the gap is
-    still shrinking, this enforces an absolute cap on the gap.
+    still shrinking, this enforces an absolute cap on the gap. It has no
+    notion of a "best" epoch (a hard pass/fail gate, not a score to
+    minimize), so `is_best` always stays False; combine it with a
+    score-tracking strategy for checkpoint selection.
     """
 
     def __init__(self, patience: int, threshold: float) -> None:
@@ -261,8 +264,6 @@ class GapThresholdEarlyStopping(EarlyStopping):
             _history: Per-epoch "train_loss"/"val_loss" values recorded so
                 far. Unused.
         """
-        self.is_best = False
-
         if val_loss is None:
             return
 
@@ -271,8 +272,6 @@ class GapThresholdEarlyStopping(EarlyStopping):
             self._epochs_over_threshold += 1
         else:
             self._epochs_over_threshold = 0
-            self.best_epoch = epoch
-            self.is_best = True
 
         self.should_stop = self._epochs_over_threshold >= self.patience
         if self.should_stop:
