@@ -210,10 +210,10 @@ class GeneralizationGapEarlyStopping(ThresholdEarlyStopping):
         val_loss: float | None,
         _history: dict[str, list[float]],
     ) -> float | None:
-        """Return `val_loss - train_loss`, or None if `val_loss` is unset."""
+        """Return `abs(val_loss - train_loss)`, or None if `val_loss` is unset."""
         if val_loss is None:
             return None
-        return val_loss - train_loss
+        return abs(val_loss - train_loss)
 
 
 class CombinedEarlyStopping(EarlyStopping):
