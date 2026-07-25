@@ -24,6 +24,8 @@ def plot_training_history(
 ) -> None:
     """Plot train/validation loss curves.
 
+    Does nothing if `train_loss` is empty (e.g. the trainer was never fit).
+
     Args:
         train_loss: Per-epoch training loss values.
         val_loss: Optional per-epoch validation loss values.
@@ -31,6 +33,9 @@ def plot_training_history(
         filename: If given, save the figure to this path.
         show_fig: If True, display the figure with `plt.show()`.
     """
+    if not train_loss:
+        return
+
     _, ax = plt.subplots()
 
     train_epochs = np.arange(1, len(train_loss) + 1)
