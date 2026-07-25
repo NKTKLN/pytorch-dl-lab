@@ -143,7 +143,11 @@ class Trainer:
             self.scheduler.step()
 
     def _forward(
-        self, inputs: torch.Tensor, _targets: torch.Tensor, _train: bool
+        self,
+        inputs: torch.Tensor,
+        _targets: torch.Tensor,
+        _extras: list[torch.Tensor],
+        _train: bool,
     ) -> torch.Tensor:
         """Computes model predictions for a batch.
 
@@ -154,6 +158,8 @@ class Trainer:
         Args:
             inputs: Batch inputs, already moved to `self.device`.
             _targets: Batch targets, already moved to `self.device`.
+            _extras: Any batch elements beyond inputs/targets, already moved
+                to `self.device`.
             _train: Whether this call happens during a training pass.
 
         Returns:
@@ -280,11 +286,10 @@ class Trainer:
         n_batches = 0
 
         with torch.enable_grad() if train else torch.no_grad():
-            for batch_inputs, batch_targets in loader:
-                inputs = batch_inputs.to(self.device)
-                targets = batch_targets.to(self.device)
+            for batch in loader:
+                inputs, targets, *extras = (t.to(self.device) for t in batch)
 
-                predictions = self._forward(inputs, targets, train)
+                predictions = self._forward(inputs, targets, extras, train)
                 loss = self.loss_fn(predictions, targets)
 
                 if train:
