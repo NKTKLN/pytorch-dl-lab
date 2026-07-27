@@ -335,14 +335,7 @@ class Trainer:
         checkpoint_dir.mkdir(parents=True, exist_ok=True)
         checkpoint_path = checkpoint_dir / f"epoch_{epoch:04d}.pt"
 
-        torch.save(
-            {
-                "epoch": epoch,
-                "model_state_dict": self.model.state_dict(),
-                "optimizer_state_dict": self.optimizer.state_dict(),
-            },
-            checkpoint_path,
-        )
+        self.save(checkpoint_path, epoch)
         logger.debug(f"Saved checkpoint: {checkpoint_path}")
 
         return checkpoint_path
@@ -356,13 +349,74 @@ class Trainer:
         Returns:
             The epoch number the checkpoint was saved at.
         """
-        checkpoint: dict[str, Any] = torch.load(
-            Path(checkpoint_path), map_location=self.device
-        )
-
-        self.model.load_state_dict(checkpoint["model_state_dict"])
-        self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
-
-        epoch = int(checkpoint["epoch"])
+        epoch = self.load(checkpoint_path)
         logger.debug(f"Loaded checkpoint: {checkpoint_path}, epoch={epoch}")
+        return epoch
+
+    def save(self, path: str | Path, epoch: int = 0) -> Path:
+        """Save the full trainer state to a single file.
+
+        Unlike `save_checkpoint`, this also persists the scheduler and
+        training history, so training can be resumed exactly where it
+        left off (e.g. across a notebook restart), not just the weights.
+
+        Args:
+            path: File path to write the state to. Parent directories are
+                created if they don't exist.
+            epoch: Epoch to record alongside the state. Defaults to 0 for
+                ad-hoc saves outside of `fit`.
+
+        Returns:
+            The path the state was written to.
+        """
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+
+        torch.save(
+            {
+                "epoch": epoch,
+                "model_state_dict": self.model.state_dict(),
+                "optimizer_state_dict": self.optimizer.state_dict(),
+                "scheduler_state_dict": (
+                    self.scheduler.state_dict() if self.scheduler is not None else None
+                ),
+                "history": self.history,
+            },
+            path,
+        )
+        logger.debug(f"Saved trainer state: {path}")
+
+        return path
+
+    def load(self, path: str | Path) -> int:
+        """Restore the full trainer state from a file written by `save`.
+
+        Args:
+            path: File path to load the state from.
+
+        Returns:
+            The epoch number recorded in the saved state.
+
+        Raises:
+            FileNotFoundError: If no file exists at `path`.
+        """
+        path = Path(path)
+        if not path.is_file():
+            raise FileNotFoundError(f"Trainer state not found: {path}")
+
+        state: dict[str, Any] = torch.load(path, map_location=self.device)
+
+        self.model.load_state_dict(state["model_state_dict"])
+        self.optimizer.load_state_dict(state["optimizer_state_dict"])
+
+        scheduler_state = state.get("scheduler_state_dict")
+        if self.scheduler is not None and scheduler_state is not None:
+            self.scheduler.load_state_dict(scheduler_state)
+
+        history = state.get("history")
+        if history is not None:
+            self.history = history
+
+        epoch = int(state.get("epoch", 0))
+        logger.debug(f"Loaded trainer state: {path}, epoch={epoch}")
         return epoch
