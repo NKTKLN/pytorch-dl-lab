@@ -11,9 +11,20 @@ from dl_roadmap.models.reverser_seq2seq import (
     EncoderRNN as ReverserEncoderRNN,
 )
 from dl_roadmap.models.reverser_seq2seq import ReverserSeq2Seq
+from dl_roadmap.models.translator_seq2seq import (
+    Attention as BahdanauAttention,
+)
+from dl_roadmap.models.translator_seq2seq import (
+    DecoderRNN as TranslatorDecoderRNN,
+)
+from dl_roadmap.models.translator_seq2seq import (
+    EncoderRNN as TranslatorEncoderRNN,
+)
+from dl_roadmap.models.translator_seq2seq import Translator
 
 __all__ = [
     "MLP_MNIST",
+    "BahdanauAttention",
     "CharRNN",
     "CnnBlock",
     "CnnFashionMNIST",
@@ -21,4 +32,7 @@ __all__ = [
     "ReverserDecoderRNN",
     "ReverserEncoderRNN",
     "ReverserSeq2Seq",
+    "Translator",
+    "TranslatorDecoderRNN",
+    "TranslatorEncoderRNN",
 ]
