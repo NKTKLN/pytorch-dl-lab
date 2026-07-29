@@ -15,6 +15,7 @@ from torch.optim.lr_scheduler import LRScheduler, ReduceLROnPlateau
 from tqdm import tqdm
 
 from dl_roadmap.engine.early_stopping import EarlyStopping
+from dl_roadmap.engine.loss_tracker import LossTracker, MeanLossTracker
 
 Batch = tuple[torch.Tensor, torch.Tensor]
 LossFn = Callable[[torch.Tensor, torch.Tensor], torch.Tensor]
@@ -68,6 +69,7 @@ class Trainer:
         config: TrainerConfig | None = None,
         callbacks: list[EpochCallback] | None = None,
         early_stopping: EarlyStopping | None = None,
+        loss_tracker: LossTracker | None = None,
     ) -> None:
         """Initialize the trainer.
 
@@ -86,6 +88,9 @@ class Trainer:
             early_stopping: Optional strategy deciding when to stop training
                 and which epoch counts as best. Requires `fit` to be called
                 with a `val_loader`.
+            loss_tracker: Strategy for aggregating per-batch loss into the
+                epoch's reported loss. Defaults to `MeanLossTracker`, i.e. a
+                plain per-batch average.
         """
         self.config = config or TrainerConfig()
 
@@ -99,6 +104,7 @@ class Trainer:
         self.scheduler = scheduler
         self.callbacks = callbacks or []
         self.early_stopping = early_stopping
+        self.loss_tracker = loss_tracker or MeanLossTracker()
 
         self.history: dict[str, list[float]] = {"train_loss": [], "val_loss": []}
 
@@ -282,8 +288,7 @@ class Trainer:
         logger.debug(f"Running epoch in {mode} mode")
         self.model.train(mode=train)
 
-        total_loss = 0.0
-        n_batches = 0
+        self.loss_tracker.reset()
 
         with torch.enable_grad() if train else torch.no_grad():
             for batch in loader:
@@ -304,11 +309,12 @@ class Trainer:
 
                     self.optimizer.step()
 
-                total_loss += loss.item()
-                n_batches += 1
+                self.loss_tracker.update(
+                    loss, inputs, targets, extras, predictions, train
+                )
 
                 if pbar is not None:
-                    running_loss = total_loss / n_batches
+                    running_loss = self.loss_tracker.compute()
 
                     postfix = {"train_loss": f"{running_loss:.4g}"}
                     if self.history["val_loss"]:
@@ -318,8 +324,8 @@ class Trainer:
                     pbar.set_postfix(**postfix)
                     pbar.update(1)
 
-        avg_loss = total_loss / max(n_batches, 1)
-        logger.debug(f"Epoch {mode} pass: batches={n_batches}, avg_loss={avg_loss:.4f}")
+        avg_loss = self.loss_tracker.compute()
+        logger.debug(f"Epoch {mode} pass: avg_loss={avg_loss:.4f}")
         return avg_loss
 
     def save_checkpoint(self, epoch: int) -> Path:
