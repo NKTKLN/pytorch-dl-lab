@@ -39,10 +39,6 @@ class TrainerConfig:
         grad_clip_norm: Max gradient norm for `clip_grad_norm_`, applied
             after `backward()` and before `optimizer.step()`. None disables
             gradient clipping.
-        warmup_steps: Number of optimizer steps over which to linearly ramp
-            each param group's learning rate up to the value it was given
-            at construction. 0 disables warmup. `scheduler` is held back
-            until the ramp finishes.
     """
 
     epochs: int = 1
@@ -52,7 +48,6 @@ class TrainerConfig:
     restore_best_weights: bool = False
     show_progress: bool = True
     grad_clip_norm: float | None = None
-    warmup_steps: int = 0
 
 
 class Trainer:
@@ -113,10 +108,6 @@ class Trainer:
 
         self.history: dict[str, list[float]] = {"train_loss": [], "val_loss": []}
 
-        # Warmup ramps up to whatever LR each group was constructed with.
-        self.base_lrs = [group["lr"] for group in self.optimizer.param_groups]
-        self.global_step = 0
-
         logger.debug(
             f"Trainer initialized: model={type(model).__name__}, "
             f"optimizer={type(optimizer).__name__}, device={self.device}"
@@ -130,22 +121,8 @@ class Trainer:
         except TypeError:
             return None
 
-    def _apply_warmup(self) -> None:
-        """Scale each param group's LR for the current step of the ramp.
-
-        Call after incrementing `self.global_step`, so the last warmup
-        step lands exactly on the base LR.
-        """
-        if self.config.warmup_steps <= 0 or self.global_step > self.config.warmup_steps:
-            return
-
-        scale = self.global_step / self.config.warmup_steps
-
-        for group, base_lr in zip(self.optimizer.param_groups, self.base_lrs):
-            group["lr"] = base_lr * scale
-
     def _step_scheduler(self, val_loss: float | None = None) -> None:
-        """Advance the LR scheduler by one step, unless warmup is still active.
+        """Advance the LR scheduler by one step.
 
         Args:
             val_loss: Current epoch's validation loss. Required when the
@@ -158,13 +135,6 @@ class Trainer:
                 `val_loader`).
         """
         if self.scheduler is None:
-            return
-
-        if self.global_step < self.config.warmup_steps:
-            logger.debug(
-                f"Scheduler held back during warmup "
-                f"({self.global_step}/{self.config.warmup_steps} steps)"
-            )
             return
 
         if isinstance(self.scheduler, ReduceLROnPlateau):
@@ -337,9 +307,6 @@ class Trainer:
                             max_norm=self.config.grad_clip_norm,
                         )
 
-                    self.global_step += 1
-                    self._apply_warmup()
-
                     self.optimizer.step()
 
                 self.loss_tracker.update(
@@ -414,7 +381,6 @@ class Trainer:
         torch.save(
             {
                 "epoch": epoch,
-                "global_step": self.global_step,
                 "model_state_dict": self.model.state_dict(),
                 "optimizer_state_dict": self.optimizer.state_dict(),
                 "scheduler_state_dict": (
@@ -456,8 +422,6 @@ class Trainer:
         history = state.get("history")
         if history is not None:
             self.history = history
-
-        self.global_step = int(state.get("global_step", 0))
 
         epoch = int(state.get("epoch", 0))
         logger.debug(f"Loaded trainer state: {path}, epoch={epoch}")
