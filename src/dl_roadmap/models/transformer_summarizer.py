@@ -593,6 +593,60 @@ class Summarizer(nn.Module):
         x = self.positional_encoding(x)
         return self.dropout(x)
 
+    def encode(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """Encodes the source sequence into decoder memory.
+
+        Args:
+            x: Source token ids of shape ``batch_size x src_len``.
+
+        Returns:
+            A tuple of the encoder memory, shaped
+            ``batch_size x src_len x model_dim``, and the source padding
+            mask, shaped ``batch_size x src_len``, which the decoder needs
+            as its ``memory_key_padding_mask``.
+        """
+        src_key_padding_mask = x == self.pad_id
+        memory = self.encoder(self._embed(x), key_padding_mask=src_key_padding_mask)
+
+        return memory, src_key_padding_mask
+
+    def decode(
+        self,
+        decoder_input: torch.Tensor,
+        memory: torch.Tensor,
+        memory_key_padding_mask: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        """Decodes the target sequence against precomputed encoder memory.
+
+        No shifting happens inside this method: ``decoder_input`` is fed to
+        the decoder as-is, so the caller must already supply the
+        BOS-prefixed, EOS-dropped summary for teacher forcing, not the raw
+        ground-truth summary.
+
+        Args:
+            decoder_input: BOS-prefixed, EOS-dropped summary token ids,
+                shaped ``batch_size x tgt_len``.
+            memory: Encoder output from `encode`, shaped
+                ``batch_size x src_len x model_dim``.
+            memory_key_padding_mask: Bool mask of shape
+                ``batch_size x src_len`` for padded source positions, as
+                returned by `encode`.
+
+        Returns:
+            Logits over the vocabulary, shaped
+            ``batch_size x tgt_len x vocab_size``.
+        """
+        tgt_key_padding_mask = decoder_input == self.pad_id
+
+        decoder_output = self.decoder(
+            self._embed(decoder_input),
+            memory,
+            tgt_key_padding_mask=tgt_key_padding_mask,
+            memory_key_padding_mask=memory_key_padding_mask,
+        )
+
+        return self.output_projection(decoder_output)
+
     def forward(self, x: torch.Tensor, decoder_input: torch.Tensor) -> torch.Tensor:
         """Encodes the source and decodes the target sequence in parallel.
 
@@ -610,16 +664,10 @@ class Summarizer(nn.Module):
             Logits over the vocabulary, shaped
             ``batch_size x tgt_len x vocab_size``.
         """
-        src_key_padding_mask = x == self.pad_id
-        tgt_key_padding_mask = decoder_input == self.pad_id
+        memory, src_key_padding_mask = self.encode(x)
 
-        memory = self.encoder(self._embed(x), key_padding_mask=src_key_padding_mask)
-
-        decoder_output = self.decoder(
-            self._embed(decoder_input),
+        return self.decode(
+            decoder_input,
             memory,
-            tgt_key_padding_mask=tgt_key_padding_mask,
             memory_key_padding_mask=src_key_padding_mask,
         )
-
-        return self.output_projection(decoder_output)
