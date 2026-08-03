@@ -1,5 +1,6 @@
 """Reusable model training engine for dl_roadmap."""
 
+from dl_roadmap.engine.beam_search import BeamNode, StepFn, beam_search
 from dl_roadmap.engine.class_predictor import ClassPredictor, PredictorConfig
 from dl_roadmap.engine.early_stopping import (
     CombinedEarlyStopping,
@@ -17,6 +18,7 @@ from dl_roadmap.engine.loss_tracker import (
 from dl_roadmap.engine.trainer import Trainer, TrainerConfig
 
 __all__ = [
+    "BeamNode",
     "ClassPredictor",
     "CombinedEarlyStopping",
     "EarlyStopping",
@@ -26,8 +28,10 @@ __all__ = [
     "MeanLossTracker",
     "PerTokenLossTracker",
     "PredictorConfig",
+    "StepFn",
     "ThresholdEarlyStopping",
     "Trainer",
     "TrainerConfig",
     "ValLossEarlyStopping",
+    "beam_search",
 ]
