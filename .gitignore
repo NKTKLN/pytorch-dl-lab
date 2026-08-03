@@ -88,7 +88,6 @@ data/external/*
 # ========================
 checkpoints/*
 logs/*
-experiments/*
 reports/figures/*
 !checkpoints/.gitkeep
 !logs/.gitkeep
