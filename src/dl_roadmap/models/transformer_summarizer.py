@@ -7,6 +7,8 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
+from dl_roadmap.engine.beam_search import beam_search
+
 
 class MultiHeadAttention(nn.Module):
     """Multi-head scaled dot-product attention with optional masking."""
@@ -545,6 +547,7 @@ class Summarizer(nn.Module):
 
         self.pad_id = sp.pad_id()
         self.bos_id = sp.bos_id()
+        self.eos_id = sp.eos_id()
         self.model_dim = model_dim
 
         self.embedding = nn.Embedding(
@@ -618,11 +621,6 @@ class Summarizer(nn.Module):
     ) -> torch.Tensor:
         """Decodes the target sequence against precomputed encoder memory.
 
-        No shifting happens inside this method: ``decoder_input`` is fed to
-        the decoder as-is, so the caller must already supply the
-        BOS-prefixed, EOS-dropped summary for teacher forcing, not the raw
-        ground-truth summary.
-
         Args:
             decoder_input: BOS-prefixed, EOS-dropped summary token ids,
                 shaped ``batch_size x tgt_len``.
@@ -650,11 +648,6 @@ class Summarizer(nn.Module):
     def forward(self, x: torch.Tensor, decoder_input: torch.Tensor) -> torch.Tensor:
         """Encodes the source and decodes the target sequence in parallel.
 
-        No shifting happens inside this method: ``decoder_input`` is fed to
-        the decoder as-is, so the caller must already supply the
-        BOS-prefixed, EOS-dropped summary for teacher forcing, not the raw
-        ground-truth summary.
-
         Args:
             x: Source token ids of shape ``batch_size x src_len``.
             decoder_input: BOS-prefixed, EOS-dropped summary token ids,
@@ -671,3 +664,62 @@ class Summarizer(nn.Module):
             memory,
             memory_key_padding_mask=src_key_padding_mask,
         )
+
+    @torch.no_grad()
+    def generate(
+        self,
+        x: torch.Tensor,
+        max_length: int = 128,
+        beam_width: int = 3,
+        length_penalty_alpha: float = 0.6,
+    ) -> torch.Tensor:
+        """Decodes a summary for a single source sequence via beam search.
+
+        Args:
+            x: Source token ids of shape ``1 x src_len``, encoded the same
+                way as during training (``<BOS> ... <EOS>``).
+            max_length: Maximum number of tokens to generate, not counting
+                the leading ``<BOS>``.
+            beam_width: Number of hypotheses kept alive at each step.
+            length_penalty_alpha: Strength of the length penalty applied
+                when ranking completed hypotheses; 0 disables it.
+
+        Returns:
+            The generated token ids, shaped ``1 x seq_len``, with the
+            leading ``<BOS>`` and the trailing ``<EOS>`` stripped, ready to
+            be passed to the tokenizer's decoder.
+
+        Raises:
+            ValueError: If `x` does not have a batch size of exactly 1.
+        """
+        if x.ndim != 2 or x.shape[0] != 1:  # noqa: PLR2004
+            raise ValueError(
+                f"generate decodes one example at a time, so x must have "
+                f"shape 1 x src_len, got {tuple(x.shape)}"
+            )
+
+        self.eval()
+
+        memory, src_key_padding_mask = self.encode(x)
+
+        def logits_fn(seq: torch.Tensor) -> torch.Tensor:
+            return self.decode(
+                seq, memory, memory_key_padding_mask=src_key_padding_mask
+            )[:, -1, :]
+
+        sequence = beam_search(
+            step=logits_fn,
+            bos_id=self.bos_id,
+            eos_id=self.eos_id,
+            max_length=max_length + 1,
+            beam_width=beam_width,
+            length_penalty_alpha=length_penalty_alpha,
+            device=x.device,
+        )
+
+        sequence = sequence[:, 1:]
+
+        if sequence.shape[1] > 0 and int(sequence[0, -1]) == self.eos_id:
+            sequence = sequence[:, :-1]
+
+        return sequence
