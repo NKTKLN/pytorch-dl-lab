@@ -582,6 +582,15 @@ class Summarizer(nn.Module):
         # Weight tying
         self.output_projection.weight = self.embedding.weight
 
+        self._init_weights()
+
+    def _init_weights(self) -> None:
+        """Rescales the token embeddings to match the ``sqrt(model_dim)`` scaling."""
+        nn.init.normal_(self.embedding.weight, mean=0.0, std=self.model_dim**-0.5)
+
+        with torch.no_grad():
+            self.embedding.weight[self.pad_id].zero_()
+
     def _embed(self, x: torch.Tensor) -> torch.Tensor:
         """Embeds token ids, adds positional encoding, and applies dropout.
 
