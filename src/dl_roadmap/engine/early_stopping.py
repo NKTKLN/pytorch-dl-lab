@@ -224,6 +224,10 @@ class GapThresholdEarlyStopping(EarlyStopping):
     notion of a "best" epoch (a hard pass/fail gate, not a score to
     minimize), so `is_best` always stays False; combine it with a
     score-tracking strategy for checkpoint selection.
+
+    Attributes:
+        gap: The `abs(val_loss - train_loss)` of the most recent `update`
+            call. None until an epoch with a `val_loss` is seen.
     """
 
     def __init__(self, patience: int, threshold: float) -> None:
@@ -245,6 +249,7 @@ class GapThresholdEarlyStopping(EarlyStopping):
         self.patience = patience
         self.threshold = threshold
 
+        self.gap: float | None = None
         self._epochs_over_threshold = 0
 
     def update(
@@ -267,8 +272,8 @@ class GapThresholdEarlyStopping(EarlyStopping):
         if val_loss is None:
             return
 
-        gap = abs(val_loss - train_loss)
-        if gap > self.threshold:
+        self.gap = abs(val_loss - train_loss)
+        if self.gap > self.threshold:
             self._epochs_over_threshold += 1
         else:
             self._epochs_over_threshold = 0
@@ -277,7 +282,7 @@ class GapThresholdEarlyStopping(EarlyStopping):
         if self.should_stop:
             logger.info(
                 f"{type(self).__name__}: should stop at epoch {epoch}: "
-                f"gap={gap:.4g} above threshold={self.threshold} for "
+                f"gap={self.gap:.4g} above threshold={self.threshold} for "
                 f"{self._epochs_over_threshold} epochs"
             )
 
