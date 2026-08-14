@@ -159,6 +159,16 @@ class Trainer:
             f"amp={amp_repr}, scaler={'on' if self.scaler.is_enabled() else 'off'}"
         )
 
+    @staticmethod
+    def _native_bf16() -> bool:
+        """Return whether the current CUDA device runs bfloat16 in hardware.
+
+        `torch.cuda.is_bf16_supported()` defaults to counting software
+        emulation, which pre-Ampere cards (e.g. V100) pass while running
+        bf16 far slower than the fp16 their tensor cores do support.
+        """
+        return bool(torch.cuda.is_bf16_supported(including_emulation=False))
+
     def _resolve_amp(self) -> tuple[bool, torch.dtype]:
         """Resolve `config.amp` into an autocast (enabled, dtype) pair.
 
@@ -168,14 +178,14 @@ class Trainer:
 
         Raises:
             ValueError: If `config.amp` is not a recognized mode, or if it
-                is "bf16" on a CUDA device without bfloat16 support.
+                is "bf16" on a CUDA device without native bfloat16 support.
         """
         amp: str = self.config.amp
 
         if amp == "auto":
             if self.device.type != "cuda":
                 return False, torch.float16
-            if torch.cuda.is_bf16_supported():
+            if self._native_bf16():
                 return True, torch.bfloat16
             return True, torch.float16
 
@@ -183,10 +193,11 @@ class Trainer:
             return False, torch.float16
 
         if amp == "bf16":
-            if self.device.type == "cuda" and not torch.cuda.is_bf16_supported():
+            if self.device.type == "cuda" and not self._native_bf16():
                 raise ValueError(
-                    "amp='bf16' needs a CUDA device with bfloat16 support; "
-                    "this one has none. Use amp='fp16' or amp='auto'."
+                    "amp='bf16' needs a CUDA device with native bfloat16 "
+                    "support (Ampere or newer); this one would emulate it in "
+                    "software. Use amp='fp16' or amp='auto'."
                 )
             return True, torch.bfloat16
 
