@@ -15,12 +15,15 @@ SummarizationBatch = tuple[torch.Tensor, torch.Tensor, torch.Tensor]
 class SummarizationDataset(Dataset[SummarizationBatch]):
     """Article-summary pair dataset for abstractive summarization.
 
-    `MAX_TEXT_LEN` and `MAX_SUMMARY_LEN` are class constants because they
-    decide which pairs survive: two notebooks truncating differently train
-    on different data and cannot be compared.
+    Sources longer than `MAX_TEXT_LEN` are truncated, matching what
+    generation does at inference time; targets longer than
+    `MAX_SUMMARY_LEN` are dropped instead, since a cut summary would teach
+    the model to stop mid-sentence. Both are class constants because they
+    decide what the model sees: two notebooks setting them differently
+    train on different data and cannot be compared.
     """
 
-    MAX_TEXT_LEN: ClassVar[int] = 1024
+    MAX_TEXT_LEN: ClassVar[int] = 768
     MAX_SUMMARY_LEN: ClassVar[int] = 128
 
     def __init__(self, df: pd.DataFrame, sp: spm.SentencePieceProcessor) -> None:
@@ -38,14 +41,28 @@ class SummarizationDataset(Dataset[SummarizationBatch]):
         self._prepare()
 
     def _prepare(self) -> None:
-        """Encodes both columns to token ids and drops overlong pairs."""
-        self.df["text_ids"] = self.df["text"].apply(self._encode)
+        """Encodes both columns, truncating sources and dropping long targets."""
+        self.df["text_ids"] = self.df["text"].apply(self._encode).apply(self._truncate)
         self.df["summary_ids"] = self.df["summary"].apply(self._encode)
 
-        mask = (self.df["text_ids"].str.len() <= self.MAX_TEXT_LEN) & (
-            self.df["summary_ids"].str.len() <= self.MAX_SUMMARY_LEN
-        )
+        mask = self.df["summary_ids"].str.len() <= self.MAX_SUMMARY_LEN
         self.df = self.df[mask].reset_index(drop=True)
+
+    @classmethod
+    def _truncate(cls, ids: list[int]) -> list[int]:
+        """Cuts a source sequence to `MAX_TEXT_LEN`, keeping its final token.
+
+        Args:
+            ids: BOS/EOS-wrapped source token ids.
+
+        Returns:
+            The ids unchanged, or their first `MAX_TEXT_LEN - 1` followed by
+            the original trailing EOS.
+        """
+        if len(ids) <= cls.MAX_TEXT_LEN:
+            return ids
+
+        return [*ids[: cls.MAX_TEXT_LEN - 1], ids[-1]]
 
     def _encode(self, sentence: str) -> list[int]:
         """Encodes a raw text into BOS/EOS-wrapped subword token ids.
