@@ -103,18 +103,18 @@ tasks:
     env:
       PYTHONPATH: src
     cmds:
-      - uv run python -m dl_roadmap.training.train_linear_regression
+      - uv run python -m dl_roadmap.chapters.linear_regression.train
 
   train:mlp:
     desc: Train MLP MNIST classifier
     env:
       PYTHONPATH: src
     cmds:
-      - uv run python -m dl_roadmap.training.train_mlp_mnist
+      - uv run python -m dl_roadmap.chapters.mnist_mlp.train
 
   train:cnn:
     desc: Train CNN Fashion-MNIST classifier
     env:
       PYTHONPATH: src
     cmds:
-      - uv run python -m dl_roadmap.training.train_cnn_fashion_mnist
+      - uv run python -m dl_roadmap.chapters.fashion_cnn.train

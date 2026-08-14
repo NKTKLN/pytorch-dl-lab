@@ -11,9 +11,9 @@ from torch import nn
 from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
 
+from dl_roadmap.chapters.fashion_cnn.model import CnnFashionMNIST
 from dl_roadmap.engine import ClassPredictor, Trainer, TrainerConfig
 from dl_roadmap.metrics import evaluate_multiclass_classification
-from dl_roadmap.models import CnnFashionMNIST
 from dl_roadmap.utils import (
     LoadConfig,
     LoggerConfig,

@@ -1,10 +1,11 @@
-"""Attention-based GRU encoder-decoder model for English-Russian translation."""
+"""Chapter 09 — attention GRU encoder-decoder for English-Russian translation."""
 
 import sentencepiece as spm
 import torch
-import torch.nn.functional as F
 from torch import nn
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
+
+from dl_roadmap.layers.attention import BahdanauAttention
 
 
 class EncoderRNN(nn.Module):
@@ -76,53 +77,6 @@ class EncoderRNN(nn.Module):
         return output, hidden
 
 
-class Attention(nn.Module):
-    """Bahdanau-style additive attention."""
-
-    def __init__(self, hidden_size: int, key_size: int | None = None) -> None:
-        """Initializes the attention layers.
-
-        Args:
-            hidden_size: Size of the query vectors and the scoring space.
-            key_size: Size of the key vectors; defaults to ``hidden_size``.
-        """
-        super().__init__()
-
-        self.w_1 = nn.Linear(hidden_size, hidden_size)
-        self.w_2 = nn.Linear(key_size or hidden_size, hidden_size)
-        self.v = nn.Linear(hidden_size, 1)
-
-    def forward(
-        self,
-        query: torch.Tensor,
-        keys: torch.Tensor,
-        mask: torch.Tensor | None = None,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        """Computes a context vector for the current decoder step.
-
-        Args:
-            query: Current decoder hidden state, shaped
-                ``batch_size x 1 x hidden_size``.
-            keys: Encoder per-step hidden states, shaped
-                ``batch_size x seq_len x key_size``.
-            mask: True at padded source positions, excluded from attention.
-
-        Returns:
-            A tuple of the context vector, shaped
-            ``batch_size x 1 x key_size``, and the attention weights.
-        """
-        scores = self.v(torch.tanh(self.w_1(query) + self.w_2(keys)))
-        scores = scores.squeeze(2).unsqueeze(1)
-
-        if mask is not None:
-            scores = scores.masked_fill(mask.unsqueeze(1), float("-inf"))
-
-        weights = F.softmax(scores, dim=-1)
-        context = torch.bmm(weights, keys)
-
-        return context, weights
-
-
 class DecoderRNN(nn.Module):
     """GRU-based autoregressive decoder with attention and weight tying."""
 
@@ -146,7 +100,7 @@ class DecoderRNN(nn.Module):
         self.dropout = nn.Dropout(dropout)
         self.embedding = nn.Embedding(output_size, hidden_size)
         nn.init.normal_(self.embedding.weight, mean=0.0, std=hidden_size**-0.5)
-        self.attention = Attention(hidden_size, key_size=hidden_size * 2)
+        self.attention = BahdanauAttention(hidden_size, key_size=hidden_size * 2)
 
         self.gru = nn.GRU(
             input_size=hidden_size + hidden_size * 2,
@@ -195,7 +149,7 @@ class DecoderRNN(nn.Module):
 
 
 class Translator(nn.Module):
-    """Attention-based encoder-decoder model for English-Russian translation."""
+    """BahdanauAttention-based encoder-decoder model for English-Russian translation."""
 
     MAX_LENGTH = 64
 

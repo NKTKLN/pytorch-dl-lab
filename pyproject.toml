@@ -131,7 +131,10 @@ module = ["pandas.*", "sentencepiece.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-module = ["dl_roadmap.data.gazeta", "dl_roadmap.data.summarization"]
+module = [
+  "dl_roadmap.chapters.summarization.data",
+  "dl_roadmap.chapters.summarization.dataset",
+]
 disable_error_code = ["no-any-unimported"]
 
 [[tool.mypy.overrides]]

@@ -9,8 +9,8 @@ from torch import nn
 from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
 
+from dl_roadmap.chapters.mnist_mlp.model import MLP_MNIST
 from dl_roadmap.engine import ClassPredictor, Trainer, TrainerConfig
-from dl_roadmap.models import MLP_MNIST
 from dl_roadmap.utils import LoadConfig, LoggerConfig, seed_everything, setup_logger
 from dl_roadmap.visualization import plot_confusion_matrix, plot_training_history
 
