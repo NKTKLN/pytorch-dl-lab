@@ -92,8 +92,9 @@ def _run_training(
     loss_fn = nn.MSELoss()
     logger.info(f"Optimizer: SGD(lr={lr}), Loss: MSELoss")
 
-    trainer = Trainer(model, optimizer, loss_fn, trainer_config)
-    history = trainer.fit(train_loader, val_loader)
+    trainer = Trainer(model, optimizer, loss_fn, config=trainer_config)
+    trainer.fit(train_loader, val_loader)
+    history = trainer.history
 
     logger.info(
         f"Model params: coef={model.weight.detach().numpy()}, "

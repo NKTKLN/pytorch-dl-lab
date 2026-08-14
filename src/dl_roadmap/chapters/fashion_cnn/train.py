@@ -97,8 +97,9 @@ def _run_training(
     loss_fn = nn.CrossEntropyLoss()
     logger.info(f"Optimizer: Adam(lr={lr}), Loss: CrossEntropyLoss")
 
-    trainer = Trainer(model, optimizer, loss_fn, trainer_config)
-    history = trainer.fit(train_loader, val_loader)
+    trainer = Trainer(model, optimizer, loss_fn, config=trainer_config)
+    trainer.fit(train_loader, val_loader)
+    history = trainer.history
 
     save_model(trainer.model, model_path)
 
