@@ -4,7 +4,7 @@ from collections.abc import Callable, Iterable
 from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import torch
 from loguru import logger
@@ -20,6 +20,7 @@ from dl_roadmap.engine.loss_tracker import LossTracker, MeanLossTracker
 Batch = tuple[torch.Tensor, torch.Tensor]
 LossFn = Callable[[torch.Tensor, torch.Tensor], torch.Tensor]
 EpochCallback = Callable[[int, float, float | None], None]
+AmpMode = Literal["auto", "off", "bf16", "fp16"]
 
 
 @dataclass
@@ -39,6 +40,17 @@ class TrainerConfig:
         grad_clip_norm: Max gradient norm for `clip_grad_norm_`, applied
             after `backward()` and before `optimizer.step()`. None disables
             gradient clipping.
+        accumulation_steps: Number of consecutive batches to accumulate
+            gradients over before each optimizer step, making the effective
+            batch size `accumulation_steps` times the loader's. 1 steps on
+            every batch. A trailing partial window at the end of an epoch
+            is still stepped, but keeps the full `accumulation_steps`
+            divisor, so its effective learning rate is lower.
+        amp: Mixed-precision mode for the forward pass and loss. "auto"
+            picks bf16 on CUDA devices that support it, fp16 on those that
+            don't, and disables autocast on CPU. "off" runs everything in
+            fp32. "bf16" and "fp16" force a dtype regardless of device;
+            only fp16 needs the gradient scaler.
     """
 
     epochs: int = 1
@@ -48,17 +60,12 @@ class TrainerConfig:
     restore_best_weights: bool = False
     show_progress: bool = True
     grad_clip_norm: float | None = None
+    accumulation_steps: int = 1
+    amp: AmpMode = "auto"
 
 
 class Trainer:
-    """Full training pipeline for a supervised PyTorch model.
-
-    Wraps the train/validate loop, checkpointing, and logging so
-    individual experiment scripts only need to assemble a model,
-    optimizer, loss function, and dataloaders. Subclasses that need the
-    model's forward call to see more than just the inputs (e.g. teacher
-    forcing) should override `_forward` rather than `_run_epoch`.
-    """
+    """Full training pipeline for a supervised PyTorch model."""
 
     def __init__(  # noqa: PLR0913
         self,
@@ -91,12 +98,31 @@ class Trainer:
             loss_tracker: Strategy for aggregating per-batch loss into the
                 epoch's reported loss. Defaults to `MeanLossTracker`, i.e. a
                 plain per-batch average.
+
+        Raises:
+            ValueError: If `config.accumulation_steps` is less than 1, if
+                `config.amp` is not a recognized mode, or if `config.amp`
+                is "bf16" on a CUDA device without bfloat16 support.
         """
         self.config = config or TrainerConfig()
 
-        self.device = self.config.device
-        if self.device is None:
-            self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        if self.config.accumulation_steps < 1:
+            raise ValueError(
+                "accumulation_steps must be >= 1, got "
+                f"{self.config.accumulation_steps}."
+            )
+
+        self.device = torch.device(
+            self.config.device
+            if self.config.device is not None
+            else ("cuda" if torch.cuda.is_available() else "cpu")
+        )
+
+        self.amp_enabled, self.amp_dtype = self._resolve_amp()
+        self.scaler = torch.amp.GradScaler(
+            self.device.type,
+            enabled=self.amp_enabled and self.amp_dtype is torch.float16,
+        )
 
         self.model = model.to(self.device)
         self.optimizer = optimizer
@@ -108,9 +134,51 @@ class Trainer:
 
         self.history: dict[str, list[float]] = {"train_loss": [], "val_loss": []}
 
+        amp_repr = (
+            str(self.amp_dtype).removeprefix("torch.") if self.amp_enabled else "off"
+        )
         logger.debug(
             f"Trainer initialized: model={type(model).__name__}, "
-            f"optimizer={type(optimizer).__name__}, device={self.device}"
+            f"optimizer={type(optimizer).__name__}, device={self.device}, "
+            f"amp={amp_repr}, scaler={'on' if self.scaler.is_enabled() else 'off'}"
+        )
+
+    def _resolve_amp(self) -> tuple[bool, torch.dtype]:
+        """Resolve `config.amp` into an autocast (enabled, dtype) pair.
+
+        Returns:
+            Whether autocast should wrap the forward pass, and the dtype to
+            run it in. The dtype is unused when autocast is disabled.
+
+        Raises:
+            ValueError: If `config.amp` is not a recognized mode, or if it
+                is "bf16" on a CUDA device without bfloat16 support.
+        """
+        amp: str = self.config.amp
+
+        if amp == "auto":
+            if self.device.type != "cuda":
+                return False, torch.float16
+            if torch.cuda.is_bf16_supported():
+                return True, torch.bfloat16
+            return True, torch.float16
+
+        if amp == "off":
+            return False, torch.float16
+
+        if amp == "bf16":
+            if self.device.type == "cuda" and not torch.cuda.is_bf16_supported():
+                raise ValueError(
+                    "amp='bf16' needs a CUDA device with bfloat16 support; "
+                    "this one has none. Use amp='fp16' or amp='auto'."
+                )
+            return True, torch.bfloat16
+
+        if amp == "fp16":
+            return True, torch.float16
+
+        raise ValueError(
+            f"Unknown amp mode {amp!r}; expected one of 'auto', 'off', 'bf16', 'fp16'."
         )
 
     @staticmethod
@@ -156,10 +224,6 @@ class Trainer:
         _train: bool,
     ) -> torch.Tensor:
         """Computes model predictions for a batch.
-
-        Override to pass extra context into the model's forward call, e.g.
-        ground-truth targets for teacher forcing in a seq2seq decoder.
-        Ignored here; the base implementation only needs `inputs`.
 
         Args:
             inputs: Batch inputs, already moved to `self.device`.
@@ -276,8 +340,10 @@ class Trainer:
 
         Args:
             loader: Batches of (inputs, targets).
-            train: If True, run in training mode with gradient updates;
-                otherwise run in evaluation mode under `torch.no_grad()`.
+            train: If True, run in training mode with gradient updates,
+                stepping the optimizer once per `config.accumulation_steps`
+                batches; otherwise run in evaluation mode under
+                `torch.no_grad()`.
             pbar: Progress bar to update with running loss after each batch.
                 If None, no progress bar is updated.
 
@@ -286,31 +352,40 @@ class Trainer:
         """
         mode = "train" if train else "eval"
         logger.debug(f"Running epoch in {mode} mode")
+
         self.model.train(mode=train)
 
         self.loss_tracker.reset()
 
+        accumulation_steps = self.config.accumulation_steps if train else 1
+        pending_micro_batches = 0
+
         with torch.enable_grad() if train else torch.no_grad():
             for batch in loader:
+                if train and pending_micro_batches == 0:
+                    self.optimizer.zero_grad(set_to_none=True)
+
                 inputs, targets, *extras = (t.to(self.device) for t in batch)
 
-                predictions = self._forward(inputs, targets, extras, train)
-                loss = self.loss_fn(predictions, targets)
+                with torch.amp.autocast(
+                    device_type=self.device.type,
+                    dtype=self.amp_dtype,
+                    enabled=self.amp_enabled,
+                ):
+                    predictions = self._forward(inputs, targets, extras, train)
+                    loss = self.loss_fn(predictions, targets)
 
                 if train:
-                    self.optimizer.zero_grad()
-                    loss.backward()  # type: ignore[no-untyped-call]
+                    scaled_loss = loss / accumulation_steps
+                    self.scaler.scale(scaled_loss).backward()  # type: ignore[no-untyped-call]
+                    pending_micro_batches += 1
 
-                    if self.config.grad_clip_norm is not None:
-                        clip_grad_norm_(
-                            self.model.parameters(),
-                            max_norm=self.config.grad_clip_norm,
-                        )
-
-                    self.optimizer.step()
+                    if pending_micro_batches == accumulation_steps:
+                        self._optimizer_step()
+                        pending_micro_batches = 0
 
                 self.loss_tracker.update(
-                    loss, inputs, targets, extras, predictions, train
+                    loss.detach().float(), inputs, targets, extras, predictions, train
                 )
 
                 if pbar is not None:
@@ -324,9 +399,28 @@ class Trainer:
                     pbar.set_postfix(**postfix)
                     pbar.update(1)
 
+        if pending_micro_batches > 0:
+            logger.debug(
+                f"Flushing {pending_micro_batches} accumulated micro-batches "
+                "left over at the end of the epoch"
+            )
+            self._optimizer_step()
+
         avg_loss = self.loss_tracker.compute()
         logger.debug(f"Epoch {mode} pass: avg_loss={avg_loss:.4f}")
         return avg_loss
+
+    def _optimizer_step(self) -> None:
+        """Clip the accumulated gradients if configured, then step the optimizer."""
+        if self.config.grad_clip_norm is not None:
+            self.scaler.unscale_(self.optimizer)
+            clip_grad_norm_(
+                self.model.parameters(),
+                max_norm=self.config.grad_clip_norm,
+            )
+
+        self.scaler.step(self.optimizer)
+        self.scaler.update()
 
     def save_checkpoint(self, epoch: int) -> Path:
         """Save model and optimizer state to `config.checkpoint_dir`.
@@ -362,10 +456,6 @@ class Trainer:
     def save(self, path: str | Path, epoch: int = 0) -> Path:
         """Save the full trainer state to a single file.
 
-        Unlike `save_checkpoint`, this also persists the scheduler and
-        training history, so training can be resumed exactly where it
-        left off (e.g. across a notebook restart), not just the weights.
-
         Args:
             path: File path to write the state to. Parent directories are
                 created if they don't exist.
@@ -386,6 +476,7 @@ class Trainer:
                 "scheduler_state_dict": (
                     self.scheduler.state_dict() if self.scheduler is not None else None
                 ),
+                "scaler_state_dict": self.scaler.state_dict(),
                 "history": self.history,
             },
             path,
@@ -418,6 +509,10 @@ class Trainer:
         scheduler_state = state.get("scheduler_state_dict")
         if self.scheduler is not None and scheduler_state is not None:
             self.scheduler.load_state_dict(scheduler_state)
+
+        scaler_state = state.get("scaler_state_dict")
+        if scaler_state is not None:
+            self.scaler.load_state_dict(scaler_state)
 
         history = state.get("history")
         if history is not None:
