@@ -21,6 +21,7 @@ Batch = tuple[torch.Tensor, torch.Tensor]
 LossFn = Callable[[torch.Tensor, torch.Tensor], torch.Tensor]
 EpochCallback = Callable[[int, float, float | None], None]
 AmpMode = Literal["auto", "off", "bf16", "fp16"]
+GradNormalizer = Literal["batches", "loss_weights"]
 
 
 @dataclass
@@ -43,9 +44,15 @@ class TrainerConfig:
         accumulation_steps: Number of consecutive batches to accumulate
             gradients over before each optimizer step, making the effective
             batch size `accumulation_steps` times the loader's. 1 steps on
-            every batch. A trailing partial window at the end of an epoch
-            is still stepped, but keeps the full `accumulation_steps`
-            divisor, so its effective learning rate is lower.
+            every batch.
+        grad_normalizer: What the accumulated gradient is divided by before
+            each optimizer step. "batches" divides by the number of
+            micro-batches in the window, which matches a `loss_fn` that
+            already averages over its own batch (`reduction="mean"`).
+            "loss_weights" divides by the summed `loss_tracker.batch_weight`
+            of the window, which matches a `loss_fn` that sums
+            (`reduction="sum"`) and reproduces the gradient of one large
+            batch even when batches hold unequal numbers of tokens.
         amp: Mixed-precision mode for the forward pass and loss. "auto"
             picks bf16 on CUDA devices that support it, fp16 on those that
             don't, and disables autocast on CPU. "off" runs everything in
@@ -61,6 +68,7 @@ class TrainerConfig:
     show_progress: bool = True
     grad_clip_norm: float | None = None
     accumulation_steps: int = 1
+    grad_normalizer: GradNormalizer = "batches"
     amp: AmpMode = "auto"
 
 
@@ -101,8 +109,9 @@ class Trainer:
 
         Raises:
             ValueError: If `config.accumulation_steps` is less than 1, if
-                `config.amp` is not a recognized mode, or if `config.amp`
-                is "bf16" on a CUDA device without bfloat16 support.
+                `config.grad_normalizer` or `config.amp` is not a
+                recognized mode, or if `config.amp` is "bf16" on a CUDA
+                device without bfloat16 support.
         """
         self.config = config or TrainerConfig()
 
@@ -110,6 +119,13 @@ class Trainer:
             raise ValueError(
                 "accumulation_steps must be >= 1, got "
                 f"{self.config.accumulation_steps}."
+            )
+
+        grad_normalizer: str = self.config.grad_normalizer
+        if grad_normalizer not in ("batches", "loss_weights"):
+            raise ValueError(
+                f"Unknown grad_normalizer {grad_normalizer!r}; "
+                "expected 'batches' or 'loss_weights'."
             )
 
         self.device = torch.device(
@@ -358,7 +374,9 @@ class Trainer:
         self.loss_tracker.reset()
 
         accumulation_steps = self.config.accumulation_steps if train else 1
+        weigh_by_loss = self.config.grad_normalizer == "loss_weights"
         pending_micro_batches = 0
+        window_weight = 0.0
 
         with torch.enable_grad() if train else torch.no_grad():
             for batch in loader:
@@ -376,13 +394,18 @@ class Trainer:
                     loss = self.loss_fn(predictions, targets)
 
                 if train:
-                    scaled_loss = loss / accumulation_steps
-                    self.scaler.scale(scaled_loss).backward()  # type: ignore[no-untyped-call]
+                    self.scaler.scale(loss).backward()  # type: ignore[no-untyped-call]
                     pending_micro_batches += 1
+                    window_weight += (
+                        self.loss_tracker.batch_weight(targets)
+                        if weigh_by_loss
+                        else 1.0
+                    )
 
                     if pending_micro_batches == accumulation_steps:
-                        self._optimizer_step()
+                        self._optimizer_step(window_weight)
                         pending_micro_batches = 0
+                        window_weight = 0.0
 
                 self.loss_tracker.update(
                     loss.detach().float(), inputs, targets, extras, predictions, train
@@ -404,14 +427,33 @@ class Trainer:
                 f"Flushing {pending_micro_batches} accumulated micro-batches "
                 "left over at the end of the epoch"
             )
-            self._optimizer_step()
+            self._optimizer_step(window_weight)
 
         avg_loss = self.loss_tracker.compute()
         logger.debug(f"Epoch {mode} pass: avg_loss={avg_loss:.4f}")
         return avg_loss
 
-    def _optimizer_step(self) -> None:
-        """Clip the accumulated gradients if configured, then step the optimizer."""
+    def _optimizer_step(self, window_weight: float) -> None:
+        """Normalize and clip the accumulated gradients, then step the optimizer.
+
+        Args:
+            window_weight: Summed weight of the micro-batches accumulated
+                since the last step, as chosen by `config.grad_normalizer`.
+                Dividing by it commutes with the scaler's own factor, so it
+                is safe to apply while the gradients are still scaled.
+        """
+        if window_weight <= 0.0:
+            logger.warning(
+                "Skipping optimizer step: accumulation window weighs "
+                f"{window_weight}, which cannot normalize the gradients"
+            )
+            return
+
+        if window_weight != 1.0:
+            for param in self.model.parameters():
+                if param.grad is not None:
+                    param.grad.div_(window_weight)
+
         if self.config.grad_clip_norm is not None:
             self.scaler.unscale_(self.optimizer)
             clip_grad_norm_(

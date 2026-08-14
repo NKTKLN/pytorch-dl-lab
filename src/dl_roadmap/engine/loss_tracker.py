@@ -47,6 +47,20 @@ class LossTracker(ABC):
         """Return the aggregated loss over all batches seen since `reset`."""
         raise NotImplementedError
 
+    def batch_weight(self, _targets: torch.Tensor) -> float:
+        """Return one batch's contribution to `compute`'s denominator.
+
+        Defaults to 1.0, matching an aggregate that divides by the batch
+        count. Subclasses dividing by something else should override this.
+
+        Args:
+            _targets: Batch targets, already moved to the training device.
+
+        Returns:
+            The weight this batch carries when averaging across batches.
+        """
+        return 1.0
+
 
 class MeanLossTracker(LossTracker):
     """Averages loss per batch, i.e. the mean of per-batch loss values."""
@@ -136,3 +150,14 @@ class PerTokenLossTracker(LossTracker):
     def compute(self) -> float:
         """Return the mean loss per non-padding token seen since `reset`."""
         return self._total_loss / max(self._total_tokens, 1)
+
+    def batch_weight(self, targets: torch.Tensor) -> float:
+        """Return the number of non-padding tokens in `targets`.
+
+        Args:
+            targets: Batch targets, already moved to the training device.
+
+        Returns:
+            The weight this batch carries when averaging across batches.
+        """
+        return float((targets != self.pad_id).sum().item())
