@@ -127,6 +127,14 @@ disallow_untyped_calls = true
 exclude = [".git", "__pycache__", "build", "dist", ".venv", "tmp", "notebooks/templates"]
 
 [[tool.mypy.overrides]]
+module = ["pandas.*", "sentencepiece.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["dl_roadmap.data.gazeta", "dl_roadmap.data.summarization"]
+disable_error_code = ["no-any-unimported"]
+
+[[tool.mypy.overrides]]
 module = "seaborn.*"
 ignore_missing_imports = true
 
