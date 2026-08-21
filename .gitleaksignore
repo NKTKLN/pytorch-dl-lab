@@ -1,0 +1,2 @@
+# False positive: `label_smoothing=0.1` in a training-config listing.
+reports/10_summarizer/search_v1.md:generic-api-key:16
