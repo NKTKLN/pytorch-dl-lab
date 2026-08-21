@@ -443,10 +443,13 @@ class Trainer:
                 max_norm=self.config.grad_clip_norm,
             )
 
+        scale_before = self.scaler.get_scale()
         self.scaler.step(self.optimizer)
         self.scaler.update()
 
-        if isinstance(self.scheduler, WarmupScheduler):
+        stepped = self.scaler.get_scale() >= scale_before
+
+        if stepped and isinstance(self.scheduler, WarmupScheduler):
             self.scheduler.step_batch()
 
     def save_checkpoint(self, epoch: int) -> Path:
