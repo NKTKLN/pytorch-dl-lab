@@ -4,11 +4,7 @@ from typing import ClassVar
 
 
 class Lang:
-    """Vocabulary built from a corpus of tokenized sentences.
-
-    Maps words to ids and back, assigning ids in first-seen order on top
-    of the reserved special tokens (``<BOS>``, ``<EOS>``, ``<UNK>``, ``<PAD>``).
-    """
+    """Vocabulary built from a corpus of tokenized sentences."""
 
     BASE_TOKENS: ClassVar[list[str]] = ["<BOS>", "<EOS>", "<UNK>", "<PAD>"]
 

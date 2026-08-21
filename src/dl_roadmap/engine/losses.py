@@ -29,12 +29,6 @@ class LossBundle:
 def make_token_loss(pad_id: int, label_smoothing: float = 0.0) -> LossBundle:
     """Builds a token-summed cross-entropy and its trainer settings.
 
-    The reduction, the tracker, and the gradient normalizer only work as a
-    set: the loss sums over non-padding tokens, the tracker divides the
-    epoch total by the token count, and the trainer divides the
-    accumulated gradient by the same count. Picking them separately is how
-    the pairing silently breaks, so they are returned together.
-
     Args:
         pad_id: Target token id excluded from both the loss and the count.
         label_smoothing: Label smoothing factor for `nn.CrossEntropyLoss`.

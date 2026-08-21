@@ -5,11 +5,7 @@ from torch import nn
 
 
 class MLP_MNIST(nn.Module):
-    """Fully-connected classifier for 28x28 grayscale MNIST digits.
-
-    Flattens the input image and passes it through two hidden ReLU
-    layers before producing raw logits over the 10 digit classes.
-    """
+    """Fully-connected classifier for 28x28 grayscale MNIST digits."""
 
     def __init__(self) -> None:
         """Build the network layers."""

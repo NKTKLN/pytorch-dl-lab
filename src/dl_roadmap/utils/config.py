@@ -1,8 +1,4 @@
-"""YAML configuration loading module.
-
-This module provides the LoadConfig class for lazily loading and validating
-experiment configuration files stored in YAML format.
-"""
+"""YAML configuration loading module."""
 
 from pathlib import Path
 from typing import Any
@@ -11,11 +7,7 @@ import yaml
 
 
 class LoadConfig:
-    """Lazily load and cache a YAML configuration file.
-
-    The file is read from disk on first access to the `config` property
-    (or an explicit call to `load`) and cached for subsequent access.
-    """
+    """Lazily load and cache a YAML configuration file."""
 
     def __init__(self, filepath: str) -> None:
         """Initialize the loader for the given config file path.

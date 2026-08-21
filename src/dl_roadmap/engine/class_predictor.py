@@ -23,13 +23,7 @@ class PredictorConfig:
 
 
 class ClassPredictor:
-    """Runs inference with a trained classification model.
-
-    Wraps a model in eval mode and turns raw input tensors into predicted
-    class indices (or labels, if a `classes` mapping is given), so
-    experiment scripts don't need to repeat the no_grad/argmax/DataLoader
-    boilerplate.
-    """
+    """Runs inference with a trained classification model."""
 
     def __init__(
         self,

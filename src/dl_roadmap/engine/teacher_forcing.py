@@ -6,12 +6,7 @@ from dl_roadmap.engine.trainer import Trainer
 
 
 class TeacherForcingTrainer(Trainer):
-    """Trainer that feeds the decoder input in both training and validation.
-
-    Fixes the convention that a batch's first extra tensor is the decoder
-    input, so encoder-decoder models can be trained without every notebook
-    respelling `_forward`.
-    """
+    """Trainer that feeds the decoder input in both training and validation."""
 
     def _forward(
         self,

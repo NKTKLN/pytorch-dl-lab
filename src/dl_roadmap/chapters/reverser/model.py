@@ -5,12 +5,7 @@ from torch import nn
 
 
 class EncoderRNN(nn.Module):
-    """GRU-based sequence encoder.
-
-    Embeds character ids and runs them through a GRU, producing the
-    per-step hidden states and the final hidden state used to initialize
-    the decoder.
-    """
+    """GRU-based sequence encoder."""
 
     def __init__(
         self,
@@ -65,14 +60,7 @@ class EncoderRNN(nn.Module):
 
 
 class DecoderRNN(nn.Module):
-    """GRU-based autoregressive decoder.
-
-    Starting from ``<BOS>``, decodes one character at a time for up to
-    ``MAX_LENGTH`` steps. During training, if a target is given, each step
-    is fed the ground-truth previous character (teacher forcing) for as
-    long as the target sequence lasts; otherwise it greedily feeds back its
-    own most likely output.
-    """
+    """GRU-based autoregressive decoder."""
 
     MAX_LENGTH = 64
 

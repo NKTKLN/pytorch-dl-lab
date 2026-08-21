@@ -13,15 +13,7 @@ SummarizationBatch = tuple[torch.Tensor, torch.Tensor, torch.Tensor]
 
 
 class SummarizationDataset(Dataset[SummarizationBatch]):
-    """Article-summary pair dataset for abstractive summarization.
-
-    Sources longer than `MAX_TEXT_LEN` are truncated, matching what
-    generation does at inference time; targets longer than
-    `MAX_SUMMARY_LEN` are dropped instead, since a cut summary would teach
-    the model to stop mid-sentence. Both are class constants because they
-    decide what the model sees: two notebooks setting them differently
-    train on different data and cannot be compared.
-    """
+    """Article-summary pair dataset for abstractive summarization."""
 
     MAX_TEXT_LEN: ClassVar[int] = 768
     MAX_SUMMARY_LEN: ClassVar[int] = 128

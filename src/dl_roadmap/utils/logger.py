@@ -1,8 +1,4 @@
-"""Application logging configuration module.
-
-This module provides the setup_logger function for configuring log output
-to the console and, optionally, to a file.
-"""
+"""Application logging configuration module."""
 
 import sys
 from dataclasses import dataclass
@@ -33,9 +29,6 @@ class LoggerConfig:
 
 def setup_logger(config: LoggerConfig) -> None:
     """Configure loguru sinks for console and optional file output.
-
-    Removes any existing sinks first, then adds a colorized stdout
-    sink and, if config.log_path is set, a rotating file sink.
 
     Args:
         config: Logging options; see LoggerConfig.

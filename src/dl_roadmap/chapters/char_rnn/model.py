@@ -5,11 +5,7 @@ from torch import nn
 
 
 class CharRNN(nn.Module):
-    """Character-level RNN language model.
-
-    Embeds character ids, runs them through a vanilla RNN, and projects the
-    hidden states back to vocabulary logits at every timestep.
-    """
+    """Character-level RNN language model."""
 
     def __init__(
         self,

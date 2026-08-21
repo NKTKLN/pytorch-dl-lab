@@ -28,10 +28,6 @@ def prepare_gazeta(
 ) -> pd.DataFrame:
     """Filters noisy gazeta pairs by language ratio, length, and duplicates.
 
-    The thresholds are module constants rather than arguments on purpose:
-    every notebook training on this corpus must filter it identically, or
-    their validation losses stop being comparable.
-
     Args:
         df: DataFrame with raw ``text`` and ``summary`` columns.
         cache_file: Path to a CSV cache of the filtered result. If it

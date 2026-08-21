@@ -10,9 +10,6 @@ from torch import nn
 def save_model(model: nn.Module, path: str | Path) -> Path:
     """Save a model's weights to disk.
 
-    Only the `state_dict` is saved (no optimizer/epoch state); use
-    `Trainer.save_checkpoint` instead if you need to resume training.
-
     Args:
         model: Model whose weights should be saved.
         path: File path to save the weights to. Parent directories are

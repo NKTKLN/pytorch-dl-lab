@@ -6,13 +6,7 @@ import torch
 
 
 class LossTracker(ABC):
-    """Base interface for aggregating per-batch loss over an epoch.
-
-    Subclasses accumulate state from each batch via `update` and expose
-    the aggregated result via `compute`. Useful when a plain per-batch
-    average (mean of per-batch losses) doesn't reflect the quantity you
-    actually care about, e.g. per-token loss on padded sequences.
-    """
+    """Base interface for aggregating per-batch loss over an epoch."""
 
     @abstractmethod
     def reset(self) -> None:
@@ -49,9 +43,6 @@ class LossTracker(ABC):
 
     def batch_weight(self, _targets: torch.Tensor) -> float:
         """Return one batch's contribution to `compute`'s denominator.
-
-        Defaults to 1.0, matching an aggregate that divides by the batch
-        count. Subclasses dividing by something else should override this.
 
         Args:
             _targets: Batch targets, already moved to the training device.
@@ -103,12 +94,7 @@ class MeanLossTracker(LossTracker):
 
 
 class PerTokenLossTracker(LossTracker):
-    """Averages loss per non-padding token, rather than per batch.
-
-    Useful for sequence models where batches have a varying number of
-    non-padding target tokens: a per-batch average would over-weight
-    batches with heavier padding relative to their actual token count.
-    """
+    """Averages loss per non-padding token, rather than per batch."""
 
     def __init__(self, pad_id: int) -> None:
         """Initialize the tracker with empty state.

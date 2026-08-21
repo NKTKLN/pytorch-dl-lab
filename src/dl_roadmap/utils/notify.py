@@ -1,16 +1,4 @@
-"""Telegram notification utilities.
-
-Credentials are read from the `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`
-environment variables (a local `.env` file is loaded automatically via
-python-dotenv, see `.env.example`). By default, missing credentials are
-treated as "notifications are off": a warning is logged and the call is
-a silent no-op, so notebooks and scripts don't crash just because Telegram
-isn't configured. Pass `strict=True` to raise instead.
-
-An optional `TELEGRAM_PROXY` environment variable can be set to route
-requests through a proxy (e.g. `socks5://user:pass@host:port` or
-`http://host:port`), for cases where api.telegram.org is blocked directly.
-"""
+"""Telegram notification utilities."""
 
 import os
 
@@ -26,9 +14,6 @@ MODEL_TRAINED_MESSAGE_TEMPLATE = """✅ Model trained: {model_name}
 
 def _get_credentials(*, strict: bool = False) -> tuple[str, str] | None:
     """Read Telegram credentials from the environment.
-
-    Loads variables from a local `.env` file (if present) and returns the
-    bot token and chat id.
 
     Args:
         strict: If True, raise when credentials are missing instead of
@@ -82,11 +67,6 @@ def _get_proxies() -> dict[str, str] | None:
 def tg_notify(message: str, timeout: float = 10.0, *, strict: bool = False) -> None:
     """Send a text message to the configured Telegram chat.
 
-    If Telegram credentials are not configured, this logs a warning and
-    returns without sending anything, unless `strict` is set. If the
-    `TELEGRAM_PROXY` environment variable is set, the request is routed
-    through that proxy.
-
     Args:
         message: Text of the message to send.
         timeout: Request timeout in seconds.
@@ -121,9 +101,6 @@ def notify_model_trained(
     strict: bool = False,
 ) -> None:
     """Send a Telegram notification that a model has finished training.
-
-    If Telegram credentials are not configured, this logs a warning and
-    returns without sending anything, unless `strict` is set.
 
     Args:
         model_name: Human-readable name of the trained model.

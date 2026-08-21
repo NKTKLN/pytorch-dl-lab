@@ -6,9 +6,6 @@ import torch
 def seed_everything(seed: int = 42) -> None:
     """Seed all relevant RNGs for reproducible runs.
 
-    Seeds Python's `random`, PyTorch (CPU and CUDA), and NumPy (if
-    installed).
-
     Args:
         seed: Seed value to apply to all RNGs.
     """

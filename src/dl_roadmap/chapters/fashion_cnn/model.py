@@ -37,11 +37,7 @@ class CnnBlock(nn.Module):
 
 
 class CnnFashionMNIST(nn.Module):
-    """Convolutional classifier for 28x28 grayscale Fashion-MNIST images.
-
-    Passes the input through two `CnnBlock`s (halving spatial dims each
-    time) before flattening and classifying with a small MLP head.
-    """
+    """Convolutional classifier for 28x28 grayscale Fashion-MNIST images."""
 
     def __init__(self) -> None:
         """Build the network layers."""

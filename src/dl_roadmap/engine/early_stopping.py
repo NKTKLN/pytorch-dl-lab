@@ -12,10 +12,6 @@ Combine = Literal["all", "any"]
 class EarlyStopping(ABC):
     """Base interface for early stopping strategies.
 
-    Subclasses inspect the training state once per epoch via `update` and
-    report whether training should stop, and whether the current epoch is
-    the best one seen so far.
-
     Attributes:
         best_epoch: The epoch with the best score seen so far. None until
             an improvement is observed.
@@ -51,11 +47,7 @@ class EarlyStopping(ABC):
 
 
 class ThresholdEarlyStopping(EarlyStopping):
-    """Stops after `patience` consecutive epochs without a scored improvement.
-
-    Subclasses only need to implement `_score`, which extracts the metric
-    to track from the epoch's training state.
-    """
+    """Stops after `patience` consecutive epochs without a scored improvement."""
 
     def __init__(
         self, patience: int, min_delta: float = 0.0, mode: Mode = "min"
@@ -219,12 +211,6 @@ class GeneralizationGapEarlyStopping(ThresholdEarlyStopping):
 class GapThresholdEarlyStopping(EarlyStopping):
     """Stops once the val/train loss gap exceeds a fixed threshold.
 
-    Unlike `GeneralizationGapEarlyStopping`, which tracks whether the gap is
-    still shrinking, this enforces an absolute cap on the gap. It has no
-    notion of a "best" epoch (a hard pass/fail gate, not a score to
-    minimize), so `is_best` always stays False; combine it with a
-    score-tracking strategy for checkpoint selection.
-
     Attributes:
         gap: The `abs(val_loss - train_loss)` of the most recent `update`
             call. None until an epoch with a `val_loss` is seen.
@@ -288,11 +274,7 @@ class GapThresholdEarlyStopping(EarlyStopping):
 
 
 class CombinedEarlyStopping(EarlyStopping):
-    """Combines multiple early stopping strategies into one.
-
-    Every strategy is updated each epoch; `should_stop` and `is_best`
-    aggregate their individual flags according to `combine`.
-    """
+    """Combines multiple early stopping strategies into one."""
 
     def __init__(
         self, strategies: list[EarlyStopping], combine: Combine = "any"

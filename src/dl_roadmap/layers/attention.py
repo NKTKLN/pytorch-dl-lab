@@ -92,8 +92,7 @@ class MultiHeadAttention(nn.Module):
             value: Value tensor of shape ``batch_size x k_len x embedding_dim``.
             attention_mask: Mask broadcastable to
                 ``batch_size x num_heads x q_len x k_len``. Bool masks exclude
-                ``True`` positions from attention; float masks are added to
-                the raw scores.
+                ``True`` positions; float masks are added to the raw scores.
             key_padding_mask: Bool mask of shape ``batch_size x k_len``,
                 ``True`` at padded key positions to exclude from attention.
             causal: Whether to additionally apply a causal mask that prevents

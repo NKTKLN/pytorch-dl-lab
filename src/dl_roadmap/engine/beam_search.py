@@ -69,12 +69,6 @@ def beam_search(  # noqa: PLR0913
 ) -> torch.Tensor:
     """Decodes the highest-scoring sequence for a single example.
 
-    Keeps `beam_width` hypotheses alive at every step, expanding each one
-    by its `beam_width` most likely continuations. A hypothesis moves to
-    the completed set once it emits ``<EOS>`` or reaches `max_length`, and
-    the winner is picked among completed hypotheses by length-normalized
-    score, so short sequences don't win on raw log-probability alone.
-
     Args:
         step: Callable scoring the next token for a partially decoded
             sequence; see `StepFn`.
