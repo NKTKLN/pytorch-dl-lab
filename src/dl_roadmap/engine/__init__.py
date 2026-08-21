@@ -16,6 +16,7 @@ from dl_roadmap.engine.loss_tracker import (
     PerTokenLossTracker,
 )
 from dl_roadmap.engine.losses import LossBundle, make_token_loss
+from dl_roadmap.engine.schedulers import WarmupScheduler, step_scheduler
 from dl_roadmap.engine.teacher_forcing import TeacherForcingTrainer
 from dl_roadmap.engine.trainer import AmpMode, GradNormalizer, Trainer, TrainerConfig
 
@@ -39,6 +40,8 @@ __all__ = [
     "Trainer",
     "TrainerConfig",
     "ValLossEarlyStopping",
+    "WarmupScheduler",
     "beam_search",
     "make_token_loss",
+    "step_scheduler",
 ]

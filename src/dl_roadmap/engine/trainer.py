@@ -11,11 +11,12 @@ from loguru import logger
 from torch import nn
 from torch.nn.utils import clip_grad_norm_
 from torch.optim import Optimizer
-from torch.optim.lr_scheduler import LRScheduler, ReduceLROnPlateau
+from torch.optim.lr_scheduler import LRScheduler
 from tqdm import tqdm
 
 from dl_roadmap.engine.early_stopping import EarlyStopping
 from dl_roadmap.engine.loss_tracker import LossTracker, MeanLossTracker
+from dl_roadmap.engine.schedulers import WarmupScheduler, step_scheduler
 
 Batch = tuple[torch.Tensor, torch.Tensor]
 LossFn = Callable[[torch.Tensor, torch.Tensor], torch.Tensor]
@@ -41,23 +42,11 @@ class TrainerConfig:
         grad_clip_norm: Max gradient norm for `clip_grad_norm_`, applied
             after `backward()` and before `optimizer.step()`. None disables
             gradient clipping.
-        accumulation_steps: Number of consecutive batches to accumulate
-            gradients over before each optimizer step, making the effective
-            batch size `accumulation_steps` times the loader's. 1 steps on
-            every batch.
-        grad_normalizer: What the accumulated gradient is divided by before
-            each optimizer step. "batches" divides by the number of
-            micro-batches in the window, which matches a `loss_fn` that
-            already averages over its own batch (`reduction="mean"`).
-            "loss_weights" divides by the summed `loss_tracker.batch_weight`
-            of the window, which matches a `loss_fn` that sums
-            (`reduction="sum"`) and reproduces the gradient of one large
-            batch even when batches hold unequal numbers of tokens.
-        amp: Mixed-precision mode for the forward pass and loss. "auto"
-            picks bf16 on CUDA devices that support it, fp16 on those that
-            don't, and disables autocast on CPU. "off" runs everything in
-            fp32. "bf16" and "fp16" force a dtype regardless of device;
-            only fp16 needs the gradient scaler.
+        accumulation_steps: Number of batches to accumulate gradients over
+            before each optimizer step.
+        grad_normalizer: Divisor for the accumulated gradient: "batches"
+            for a mean-reduced loss, "loss_weights" for a sum-reduced one.
+        amp: Mixed-precision mode: "auto", "off", "bf16" or "fp16".
     """
 
     epochs: int = 1
@@ -80,7 +69,7 @@ class Trainer:
         model: nn.Module,
         optimizer: Optimizer,
         loss_fn: LossFn,
-        scheduler: LRScheduler | None = None,
+        scheduler: LRScheduler | WarmupScheduler | None = None,
         config: TrainerConfig | None = None,
         callbacks: list[EpochCallback] | None = None,
         early_stopping: EarlyStopping | None = None,
@@ -96,10 +85,7 @@ class Trainer:
                 a `ReduceLROnPlateau`, `fit` must be called with a `val_loader`.
             config: Trainer options; defaults to `TrainerConfig()`.
             callbacks: Callables of the form `(epoch, train_loss, val_loss)`,
-                each invoked once at the end of every epoch (`val_loss` is
-                None when `fit` is called without a `val_loader`). Useful for
-                per-epoch side effects the trainer doesn't know about itself,
-                e.g. decaying a model's teacher-forcing ratio.
+                invoked once at the end of every epoch.
             early_stopping: Optional strategy deciding when to stop training
                 and which epoch counts as best. Requires `fit` to be called
                 with a `val_loader`.
@@ -109,9 +95,8 @@ class Trainer:
 
         Raises:
             ValueError: If `config.accumulation_steps` is less than 1, if
-                `config.grad_normalizer` or `config.amp` is not a
-                recognized mode, or if `config.amp` is "bf16" on a CUDA
-                device without bfloat16 support.
+                `config.grad_normalizer` or `config.amp` is not a recognized
+                mode, or if "bf16" is unsupported by the CUDA device.
         """
         self.config = config or TrainerConfig()
 
@@ -161,12 +146,7 @@ class Trainer:
 
     @staticmethod
     def _native_bf16() -> bool:
-        """Return whether the current CUDA device runs bfloat16 in hardware.
-
-        `torch.cuda.is_bf16_supported()` defaults to counting software
-        emulation, which pre-Ampere cards (e.g. V100) pass while running
-        bf16 far slower than the fp16 their tensor cores do support.
-        """
+        """Return whether the current CUDA device runs bfloat16 in hardware."""
         return bool(torch.cuda.is_bf16_supported(including_emulation=False))
 
     def _resolve_amp(self) -> tuple[bool, torch.dtype]:
@@ -232,16 +212,11 @@ class Trainer:
         if self.scheduler is None:
             return
 
-        if isinstance(self.scheduler, ReduceLROnPlateau):
-            if val_loss is None:
-                raise ValueError(
-                    "ReduceLROnPlateau requires a validation loss; "
-                    "call fit() with a val_loader."
-                )
+        if isinstance(self.scheduler, WarmupScheduler):
+            self.scheduler.step_epoch(val_loss)
+            return
 
-            self.scheduler.step(float(val_loss))
-        else:
-            self.scheduler.step()
+        step_scheduler(self.scheduler, val_loss)
 
     def _forward(
         self,
@@ -367,10 +342,8 @@ class Trainer:
 
         Args:
             loader: Batches of (inputs, targets).
-            train: If True, run in training mode with gradient updates,
-                stepping the optimizer once per `config.accumulation_steps`
-                batches; otherwise run in evaluation mode under
-                `torch.no_grad()`.
+            train: If True, run in training mode with gradient updates;
+                otherwise run in evaluation mode under `torch.no_grad()`.
             pbar: Progress bar to update with running loss after each batch.
                 If None, no progress bar is updated.
 
@@ -450,8 +423,6 @@ class Trainer:
         Args:
             window_weight: Summed weight of the micro-batches accumulated
                 since the last step, as chosen by `config.grad_normalizer`.
-                Dividing by it commutes with the scaler's own factor, so it
-                is safe to apply while the gradients are still scaled.
         """
         if window_weight <= 0.0:
             logger.warning(
@@ -474,6 +445,9 @@ class Trainer:
 
         self.scaler.step(self.optimizer)
         self.scaler.update()
+
+        if isinstance(self.scheduler, WarmupScheduler):
+            self.scheduler.step_batch()
 
     def save_checkpoint(self, epoch: int) -> Path:
         """Save model and optimizer state to `config.checkpoint_dir`.
