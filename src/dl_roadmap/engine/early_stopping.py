@@ -178,6 +178,46 @@ class ValLossEarlyStopping(ThresholdEarlyStopping):
         return val_loss
 
 
+class MetricEarlyStopping(ThresholdEarlyStopping):
+    """Stops when a metric recorded in the trainer's history stops improving."""
+
+    def __init__(
+        self,
+        key: str,
+        patience: int,
+        min_delta: float = 0.0,
+        mode: Mode = "max",
+    ) -> None:
+        """Initialize the strategy.
+
+        Args:
+            key: History key to track, e.g. "val_rouge_mean" for the metric
+                registered as `metrics={"rouge": ...}` on the trainer.
+            patience: Number of consecutive non-improving epochs to tolerate
+                before `should_stop` is set.
+            min_delta: Minimum change in the metric (vs. the best seen so
+                far) to count as an improvement.
+            mode: "max" if a higher value is better, "min" if lower is.
+
+        Raises:
+            ValueError: If `patience` is less than 1.
+        """
+        super().__init__(patience, min_delta, mode=mode)
+
+        self.key = key
+
+    def _score(
+        self,
+        _epoch: int,
+        _train_loss: float,
+        _val_loss: float | None,
+        history: dict[str, list[float]],
+    ) -> float | None:
+        """Return the latest value of `key`, or None if it was never recorded."""
+        values = history.get(self.key)
+        return values[-1] if values else None
+
+
 class GeneralizationGapEarlyStopping(ThresholdEarlyStopping):
     """Stops when the val/train loss gap stops shrinking, i.e. overfitting."""
 

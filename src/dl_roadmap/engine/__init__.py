@@ -7,6 +7,7 @@ from dl_roadmap.engine.early_stopping import (
     EarlyStopping,
     GapThresholdEarlyStopping,
     GeneralizationGapEarlyStopping,
+    MetricEarlyStopping,
     ThresholdEarlyStopping,
     ValLossEarlyStopping,
 )
@@ -34,6 +35,7 @@ __all__ = [
     "LossTracker",
     "MeanLossTracker",
     "Metric",
+    "MetricEarlyStopping",
     "PerTokenLossTracker",
     "PredictorConfig",
     "RougeScore",
