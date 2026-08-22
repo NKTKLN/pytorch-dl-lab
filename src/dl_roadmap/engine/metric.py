@@ -119,7 +119,7 @@ class TokenAccuracy(Metric):
 
 
 def _normalize(text: str) -> str:
-    """Lowercase `text`, fold the letter yo onto ye, and drop punctuation.
+    """Lowercase `text`, fold "ё" onto "е", and drop punctuation.
 
     Args:
         text: Raw decoded text.
