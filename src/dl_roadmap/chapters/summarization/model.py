@@ -24,6 +24,7 @@ class Summarizer(nn.Module):
         ffn_dim: int | None = None,
         dropout: float = 0.1,
         max_length: int = 1024,
+        use_weight_tying: bool = True,
     ) -> None:
         """Initializes the embedding, positional encoding, and encoder/decoder stacks.
 
@@ -38,6 +39,9 @@ class Summarizer(nn.Module):
                 Defaults to ``4 * model_dim`` inside ``FFN``.
             dropout: Dropout probability passed to every block.
             max_length: Maximum sequence length supported by the positional encoding.
+            use_weight_tying: Whether the output projection shares its weight
+                matrix with the token embedding, saving ``vocab_size *
+                model_dim`` parameters.
         """
         super().__init__()
 
@@ -45,6 +49,7 @@ class Summarizer(nn.Module):
         self.bos_id = sp.bos_id()
         self.eos_id = sp.eos_id()
         self.model_dim = model_dim
+        self.use_weight_tying = use_weight_tying
 
         self.embedding = nn.Embedding(
             num_embeddings=sp.get_piece_size(),
@@ -75,14 +80,24 @@ class Summarizer(nn.Module):
 
         self.output_projection = nn.Linear(model_dim, sp.get_piece_size())
 
-        # Weight tying
-        self.output_projection.weight = self.embedding.weight
+        # Weight tying: the projection keeps its own bias either way.
+        if use_weight_tying:
+            self.output_projection.weight = self.embedding.weight
 
         self._init_weights()
 
     def _init_weights(self) -> None:
-        """Rescales the token embeddings to match the ``sqrt(model_dim)`` scaling."""
+        """Rescales the token embeddings to match the ``sqrt(model_dim)`` scaling.
+
+        An untied output projection is drawn from the same distribution, so
+        that toggling `use_weight_tying` changes the sharing and nothing else.
+        """
         nn.init.normal_(self.embedding.weight, mean=0.0, std=self.model_dim**-0.5)
+
+        if not self.use_weight_tying:
+            nn.init.normal_(
+                self.output_projection.weight, mean=0.0, std=self.model_dim**-0.5
+            )
 
         with torch.no_grad():
             self.embedding.weight[self.pad_id].zero_()
