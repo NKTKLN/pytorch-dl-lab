@@ -120,3 +120,18 @@ class WarmupScheduler:
         scheduler_state = state_dict.get("scheduler")
         if self.scheduler is not None and scheduler_state is not None:
             self.scheduler.load_state_dict(scheduler_state)
+
+        self._apply_last_lr()
+
+    def _apply_last_lr(self) -> None:
+        """Writes the restored schedule's rate back onto the param groups."""
+        active: Any = self.warmup
+        if not self.in_warmup and self.scheduler is not None:
+            active = self.scheduler
+
+        last_lr = getattr(active, "_last_lr", None)
+        if last_lr is None:
+            return
+
+        for group, lr in zip(self.optimizer.param_groups, last_lr):
+            group["lr"] = float(lr)
