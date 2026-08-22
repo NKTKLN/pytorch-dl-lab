@@ -16,6 +16,7 @@ from tqdm import tqdm
 
 from dl_roadmap.engine.early_stopping import EarlyStopping
 from dl_roadmap.engine.loss_tracker import LossTracker, MeanLossTracker
+from dl_roadmap.engine.metric import Metric, flatten_metric
 from dl_roadmap.engine.schedulers import WarmupScheduler, step_scheduler
 
 Batch = tuple[torch.Tensor, torch.Tensor]
@@ -74,6 +75,7 @@ class Trainer:
         callbacks: list[EpochCallback] | None = None,
         early_stopping: EarlyStopping | None = None,
         loss_tracker: LossTracker | None = None,
+        metrics: dict[str, Metric] | None = None,
     ) -> None:
         """Initialize the trainer.
 
@@ -92,6 +94,9 @@ class Trainer:
             loss_tracker: Strategy for aggregating per-batch loss into the
                 epoch's reported loss. Defaults to `MeanLossTracker`, i.e. a
                 plain per-batch average.
+            metrics: Named metrics accumulated batch by batch alongside the
+                loss, on both the training and validation pass. Each epoch's
+                values land in `history` under "train_<name>"/"val_<name>".
 
         Raises:
             ValueError: If `config.accumulation_steps` is less than 1, if
@@ -132,6 +137,7 @@ class Trainer:
         self.callbacks = callbacks or []
         self.early_stopping = early_stopping
         self.loss_tracker = loss_tracker or MeanLossTracker()
+        self.metrics = metrics or {}
 
         self.history: dict[str, list[float]] = {"train_loss": [], "val_loss": []}
 
@@ -287,7 +293,7 @@ class Trainer:
         for epoch in range(1, self.config.epochs + 1):
             pbar.set_description(f"epoch {epoch:>{epoch_width}}/{self.config.epochs}")
 
-            train_loss = self._run_epoch(
+            train_loss, train_metrics = self._run_epoch(
                 train_loader,
                 train=True,
                 pbar=pbar,
@@ -297,10 +303,13 @@ class Trainer:
             loss_data = {"train_loss": f"{train_loss:.4g}"}
 
             val_loss: float | None = None
+            val_metrics: dict[str, float] | None = None
             if val_loader is not None:
-                val_loss = self._run_epoch(val_loader, train=False)
+                val_loss, val_metrics = self._run_epoch(val_loader, train=False)
                 self.history["val_loss"].append(val_loss)
                 loss_data["val_loss"] = f"{val_loss:.4g}"
+
+            loss_data.update(self._record_metrics(train_metrics, val_metrics))
 
             self._step_scheduler(val_loss)
 
@@ -332,12 +341,60 @@ class Trainer:
         pbar.close()
         logger.debug("Training complete")
 
+    def _metric_values(self) -> dict[str, float]:
+        """Return every configured metric's value, flattened into scalars."""
+        values: dict[str, float] = {}
+
+        for name, metric in self.metrics.items():
+            values.update(flatten_metric(name, metric.compute()))
+
+        return values
+
+    def _running_postfix(self) -> dict[str, str]:
+        """Return the progress bar postfix for the batch just finished."""
+        postfix = {"train_loss": f"{self.loss_tracker.compute():.4g}"}
+
+        if self.history["val_loss"]:
+            postfix["val_loss"] = f"{self.history['val_loss'][-1]:.4g}"
+
+        for name, value in self._metric_values().items():
+            postfix[name] = f"{value:.4g}"
+
+        return postfix
+
+    def _record_metrics(
+        self,
+        train_metrics: dict[str, float],
+        val_metrics: dict[str, float] | None,
+    ) -> dict[str, str]:
+        """Append one epoch's metric values to `history`.
+
+        Args:
+            train_metrics: Metric values from the epoch's training pass.
+            val_metrics: Metric values from the epoch's validation pass, or
+                None if no validation loader was used.
+
+        Returns:
+            Formatted metric values, for display on the progress bar.
+        """
+        display: dict[str, str] = {}
+
+        for name, value in train_metrics.items():
+            self.history.setdefault(f"train_{name}", []).append(value)
+            display[name] = f"{value:.4g}"
+
+        for name, value in (val_metrics or {}).items():
+            self.history.setdefault(f"val_{name}", []).append(value)
+            display[f"val_{name}"] = f"{value:.4g}"
+
+        return display
+
     def _run_epoch(
         self,
         loader: Iterable[Batch],
         train: bool,
         pbar: Any | None = None,
-    ) -> float:
+    ) -> tuple[float, dict[str, float]]:
         """Run a single train or evaluation pass over `loader`.
 
         Args:
@@ -348,7 +405,8 @@ class Trainer:
                 If None, no progress bar is updated.
 
         Returns:
-            The average loss over all batches.
+            The average loss over all batches, and each configured metric's
+            value over the same pass.
         """
         mode = "train" if train else "eval"
         logger.debug(f"Running epoch in {mode} mode")
@@ -356,6 +414,8 @@ class Trainer:
         self.model.train(mode=train)
 
         self.loss_tracker.reset()
+        for metric in self.metrics.values():
+            metric.reset()
 
         accumulation_steps = self.config.accumulation_steps if train else 1
         weigh_by_loss = self.config.grad_normalizer == "loss_weights"
@@ -395,15 +455,11 @@ class Trainer:
                     loss.detach().float(), inputs, targets, extras, predictions, train
                 )
 
+                for metric in self.metrics.values():
+                    metric.update(inputs, targets, extras, predictions.detach(), train)
+
                 if pbar is not None:
-                    running_loss = self.loss_tracker.compute()
-
-                    postfix = {"train_loss": f"{running_loss:.4g}"}
-                    if self.history["val_loss"]:
-                        last_val_loss = self.history["val_loss"][-1]
-                        postfix["val_loss"] = f"{last_val_loss:.4g}"
-
-                    pbar.set_postfix(**postfix)
+                    pbar.set_postfix(**self._running_postfix())
                     pbar.update(1)
 
         if pending_micro_batches > 0:
@@ -414,8 +470,13 @@ class Trainer:
             self._optimizer_step(window_weight)
 
         avg_loss = self.loss_tracker.compute()
-        logger.debug(f"Epoch {mode} pass: avg_loss={avg_loss:.4f}")
-        return avg_loss
+        metrics = self._metric_values()
+
+        metrics_repr = "".join(
+            f", {name}={value:.4f}" for name, value in metrics.items()
+        )
+        logger.debug(f"Epoch {mode} pass: avg_loss={avg_loss:.4f}{metrics_repr}")
+        return avg_loss, metrics
 
     def _optimizer_step(self, window_weight: float) -> None:
         """Normalize and clip the accumulated gradients, then step the optimizer.
