@@ -135,3 +135,63 @@ class WarmupScheduler:
 
         for group, lr in zip(self.optimizer.param_groups, last_lr):
             group["lr"] = float(lr)
+
+
+class EpochWarmupScheduler(WarmupScheduler):
+    """Linear LR warmup by epoch, then hands over to `scheduler`.
+
+    Attributes:
+        optimizer: The optimizer whose learning rate is scheduled.
+        warmup_epochs: Number of epochs the ramp spans.
+        warmup: The `LinearLR` doing the ramp.
+        scheduler: The scheduler that takes over afterwards, if any.
+    """
+
+    def __init__(
+        self,
+        optimizer: torch.optim.Optimizer,
+        warmup_epochs: int,
+        scheduler: LRScheduler | None = None,
+    ) -> None:
+        """Initializes the warmup ramp and stores the scheduler after it.
+
+        Args:
+            optimizer: The optimizer to schedule.
+            warmup_epochs: Number of epochs to ramp over, so the ramp keeps
+                its length in epochs when the dataset or the batch size
+                changes.
+            scheduler: Scheduler to advance once warmup is done. None runs
+                warmup alone and leaves the rate flat afterwards.
+
+        Raises:
+            ValueError: If `warmup_epochs` is below 1.
+        """
+        if warmup_epochs < 1:
+            raise ValueError(f"warmup_epochs must be >= 1, got {warmup_epochs}")
+
+        super().__init__(optimizer, warmup_epochs, scheduler)
+
+    @property
+    def warmup_epochs(self) -> int:
+        """Returns the number of epochs the ramp spans."""
+        return self.warmup_steps
+
+    def step_batch(self) -> None:
+        """Does nothing: this ramp is advanced by `step_epoch` instead."""
+        ...
+
+    def step_epoch(self, val_loss: float | None = None) -> None:
+        """Advances the ramp by one epoch, or the wrapped scheduler after it.
+
+        Args:
+            val_loss: Current epoch's validation loss, forwarded to the
+                wrapped scheduler if it needs one.
+        """
+        if self.in_warmup:
+            self.warmup.step()
+            return
+
+        if self.scheduler is None:
+            return
+
+        step_scheduler(self.scheduler, val_loss)
