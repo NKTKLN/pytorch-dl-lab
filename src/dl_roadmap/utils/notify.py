@@ -1,6 +1,7 @@
 """Telegram notification utilities."""
 
 import os
+from typing import Any
 
 import requests
 from dotenv import load_dotenv
@@ -96,7 +97,7 @@ def tg_notify(message: str, timeout: float = 10.0, *, strict: bool = False) -> N
 
 def notify_model_trained(
     model_name: str,
-    metrics: dict[str, float] | None = None,
+    metrics: dict[str, Any] | None = None,
     *,
     strict: bool = False,
 ) -> None:
@@ -117,7 +118,7 @@ def notify_model_trained(
     """
     details = ""
     if metrics:
-        details = "\n".join(f"* {name}: {value:.4f}" for name, value in metrics.items())
+        details = "\n".join(f"* {name}: {value}" for name, value in metrics.items())
 
     message = MODEL_TRAINED_MESSAGE_TEMPLATE.format(
         model_name=model_name, details=details
