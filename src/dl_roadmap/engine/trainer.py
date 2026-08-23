@@ -354,11 +354,12 @@ class Trainer:
         """Return the progress bar postfix for the batch just finished."""
         postfix = {"train_loss": f"{self.loss_tracker.compute():.4g}"}
 
-        if self.history["val_loss"]:
-            postfix["val_loss"] = f"{self.history['val_loss'][-1]:.4g}"
-
         for name, value in self._metric_values().items():
             postfix[name] = f"{value:.4g}"
+
+        for key, values in self.history.items():
+            if key not in postfix and values:
+                postfix[key] = f"{values[-1]:.4g}"
 
         return postfix
 
