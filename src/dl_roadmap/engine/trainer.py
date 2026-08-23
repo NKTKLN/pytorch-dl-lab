@@ -290,55 +290,64 @@ class Trainer:
 
         best_state: dict[str, Any] | None = None
 
-        for epoch in range(1, self.config.epochs + 1):
-            pbar.set_description(f"epoch {epoch:>{epoch_width}}/{self.config.epochs}")
+        try:
+            for epoch in range(1, self.config.epochs + 1):
+                pbar.set_description(
+                    f"epoch {epoch:>{epoch_width}}/{self.config.epochs}"
+                )
 
-            train_loss, train_metrics = self._run_epoch(
-                train_loader,
-                train=True,
-                pbar=pbar,
-            )
-            self.history["train_loss"].append(train_loss)
+                train_loss, train_metrics = self._run_epoch(
+                    train_loader,
+                    train=True,
+                    pbar=pbar,
+                )
+                self.history["train_loss"].append(train_loss)
 
-            loss_data = {"train_loss": f"{train_loss:.4g}"}
+                loss_data = {"train_loss": f"{train_loss:.4g}"}
 
-            val_loss: float | None = None
-            val_metrics: dict[str, float] | None = None
-            if val_loader is not None:
-                val_loss, val_metrics = self._run_epoch(val_loader, train=False)
-                self.history["val_loss"].append(val_loss)
-                loss_data["val_loss"] = f"{val_loss:.4g}"
+                val_loss: float | None = None
+                val_metrics: dict[str, float] | None = None
+                if val_loader is not None:
+                    val_loss, val_metrics = self._run_epoch(val_loader, train=False)
+                    self.history["val_loss"].append(val_loss)
+                    loss_data["val_loss"] = f"{val_loss:.4g}"
 
-            loss_data.update(self._record_metrics(train_metrics, val_metrics))
+                loss_data.update(self._record_metrics(train_metrics, val_metrics))
 
-            self._step_scheduler(val_loss)
+                self._step_scheduler(val_loss)
 
-            for callback in self.callbacks:
-                callback(epoch, train_loss, val_loss)
+                for callback in self.callbacks:
+                    callback(epoch, train_loss, val_loss)
 
-            pbar.set_postfix(**loss_data)
+                pbar.set_postfix(**loss_data)
 
-            if self.early_stopping is not None:
-                self.early_stopping.update(epoch, train_loss, val_loss, self.history)
+                if self.early_stopping is not None:
+                    self.early_stopping.update(
+                        epoch, train_loss, val_loss, self.history
+                    )
 
-                if self.early_stopping.is_best and self.config.restore_best_weights:
-                    best_state = deepcopy(self.model.state_dict())
+                    if self.early_stopping.is_best and self.config.restore_best_weights:
+                        best_state = deepcopy(self.model.state_dict())
 
-                if self.early_stopping.should_stop:
-                    pbar.set_postfix(**loss_data, status="early stopped")
-                    break
+                    if self.early_stopping.should_stop:
+                        pbar.set_postfix(**loss_data, status="early stopped")
+                        break
 
-            if self.config.checkpoint_dir and epoch % self.config.checkpoint_every == 0:
-                self.save_checkpoint(epoch)
+                if (
+                    self.config.checkpoint_dir
+                    and epoch % self.config.checkpoint_every == 0
+                ):
+                    self.save_checkpoint(epoch)
 
-        if self.config.restore_best_weights and best_state is not None:
-            self.model.load_state_dict(best_state)
-            logger.debug(
-                "Restored best model weights from epoch "
-                f"{self.early_stopping.best_epoch}"
-            )
+            if self.config.restore_best_weights and best_state is not None:
+                self.model.load_state_dict(best_state)
+                logger.debug(
+                    "Restored best model weights from epoch "
+                    f"{self.early_stopping.best_epoch}"
+                )
+        finally:
+            pbar.close()
 
-        pbar.close()
         logger.debug("Training complete")
 
     def _metric_values(self) -> dict[str, float]:
