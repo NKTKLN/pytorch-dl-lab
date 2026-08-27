@@ -186,12 +186,15 @@ class Summarizer(nn.Module):
         )
 
     @torch.no_grad()
-    def generate(
+    def generate(  # noqa: PLR0913
         self,
         x: torch.Tensor,
         max_length: int = 128,
         beam_width: int = 3,
         length_penalty_alpha: float = 0.6,
+        min_length: int = 0,
+        repetition_penalty: float = 1.0,
+        no_repeat_ngram_size: int = 0,
     ) -> torch.Tensor:
         """Decodes a summary for a single source sequence via beam search.
 
@@ -203,6 +206,13 @@ class Summarizer(nn.Module):
             beam_width: Number of hypotheses kept alive at each step.
             length_penalty_alpha: Strength of the length penalty applied
                 when ranking completed hypotheses; 0 disables it.
+            min_length: Number of tokens, not counting the leading
+                ``<BOS>``, that must be generated before ``<EOS>`` is
+                allowed; 0 disables it.
+            repetition_penalty: Discount applied to the logits of tokens
+                already present in a hypothesis; 1 disables it.
+            no_repeat_ngram_size: Length of the n-grams that may not repeat
+                within a hypothesis; 0 disables the check.
 
         Returns:
             The generated token ids, shaped ``1 x seq_len``, with the
@@ -234,6 +244,9 @@ class Summarizer(nn.Module):
             max_length=max_length + 1,
             beam_width=beam_width,
             length_penalty_alpha=length_penalty_alpha,
+            min_length=min_length + 1 if min_length else 0,
+            repetition_penalty=repetition_penalty,
+            no_repeat_ngram_size=no_repeat_ngram_size,
             device=x.device,
         )
 
