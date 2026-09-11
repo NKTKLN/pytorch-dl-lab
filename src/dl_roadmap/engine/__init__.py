@@ -17,7 +17,12 @@ from dl_roadmap.engine.loss_tracker import (
     PerTokenLossTracker,
 )
 from dl_roadmap.engine.losses import LossBundle, make_token_loss
-from dl_roadmap.engine.metric import Metric, RougeScore, TokenAccuracy
+from dl_roadmap.engine.metric import (
+    GeneratedRougeScore,
+    Metric,
+    RougeScore,
+    TokenAccuracy,
+)
 from dl_roadmap.engine.schedulers import (
     EpochWarmupScheduler,
     WarmupScheduler,
@@ -35,6 +40,7 @@ __all__ = [
     "EpochWarmupScheduler",
     "GapThresholdEarlyStopping",
     "GeneralizationGapEarlyStopping",
+    "GeneratedRougeScore",
     "GradNormalizer",
     "LossBundle",
     "LossTracker",

@@ -3,6 +3,7 @@
 import re
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Mapping
+from typing import Any
 
 import torch
 from torchmetrics.text.rouge import ROUGEScore
@@ -226,4 +227,121 @@ class RougeScore(Metric):
             key: float(scores[f"{key}_fmeasure"].item()) for key in self.ROUGE_KEYS
         }
 
+        return {**values, "mean": sum(values.values()) / len(values)}
+
+
+class GeneratedRougeScore(Metric):
+    """ROUGE over free-running autoregressive model generations.
+
+    Unlike :class:`RougeScore`, this metric never scores argmax tokens from
+    the teacher-forced validation forward pass.  It calls the model's
+    generation function using only the source sequence, so it is suitable as
+    an Optuna objective for sequence generation quality.
+
+    Generation is intentionally performed one example at a time because the
+    current summarizer's ``generate`` method accepts a batch size of one.
+    ``max_examples`` keeps this relatively expensive metric practical during
+    tuning and, unlike a batch limit, evaluates the same number of examples
+    when the DataLoader batch size changes.
+    """
+
+    ROUGE_KEYS = ("rouge1", "rouge2", "rougeL")
+    SEQUENCE_NDIM = 1
+    BATCHED_SEQUENCE_NDIM = 2
+
+    def __init__(
+        self,
+        generate: Callable[..., torch.Tensor],
+        decode: Callable[[list[list[int]]], list[str]],
+        pad_id: int,
+        max_examples: int | None = None,
+        generation_kwargs: Mapping[str, Any] | None = None,
+    ) -> None:
+        """Initialize a free-running ROUGE accumulator.
+
+        Args:
+            generate: Callable receiving one source tensor shaped
+                ``1 x src_len`` and returning generated token ids. Typically
+                ``model.generate``.
+            decode: Batched token-id decoder, e.g. ``sp.decode``.
+            pad_id: Padding token id, removed from sources and references.
+            max_examples: Maximum validation examples scored per epoch. None
+                evaluates the complete validation pass.
+            generation_kwargs: Fixed keyword arguments passed to ``generate``
+                for every example. These must remain identical across trials.
+        """
+        if max_examples is not None and max_examples < 1:
+            raise ValueError("max_examples must be >= 1 or None")
+
+        self.generate = generate
+        self.decode = decode
+        self.pad_id = pad_id
+        self.max_examples = max_examples
+        self.generation_kwargs = dict(generation_kwargs or {})
+        self._rouge = ROUGEScore(
+            rouge_keys=self.ROUGE_KEYS,
+            normalizer=_normalize,
+            use_stemmer=False,
+        )
+        self._n_examples = 0
+
+    def reset(self) -> None:
+        """Clear accumulated generations and scores."""
+        self._rouge.reset()
+        self._n_examples = 0
+
+    @torch.no_grad()
+    def update(
+        self,
+        inputs: torch.Tensor,
+        targets: torch.Tensor,
+        _extras: list[torch.Tensor],
+        _predictions: torch.Tensor,
+        train: bool,
+    ) -> None:
+        """Generate summaries from sources and accumulate validation ROUGE."""
+        if train:
+            return
+
+        remaining = (
+            inputs.shape[0]
+            if self.max_examples is None
+            else min(inputs.shape[0], self.max_examples - self._n_examples)
+        )
+        if remaining <= 0:
+            return
+
+        generated_ids: list[list[int]] = []
+        target_ids: list[list[int]] = []
+
+        for source, target in zip(inputs[:remaining], targets[:remaining]):
+            source_input = source[source != self.pad_id].unsqueeze(0)
+            generated = self.generate(source_input, **self.generation_kwargs)
+
+            if generated.ndim == self.BATCHED_SEQUENCE_NDIM:
+                generated = generated[0]
+            if generated.ndim != self.SEQUENCE_NDIM:
+                raise ValueError(
+                    "generate must return token ids shaped seq_len or "
+                    f"1 x seq_len, got {tuple(generated.shape)}"
+                )
+
+            generated_ids.append(generated.detach().cpu().tolist())
+            target_ids.append(target[target != self.pad_id].detach().cpu().tolist())
+
+        self._rouge.update(
+            self.decode(generated_ids),
+            self.decode(target_ids),
+        )
+        self._n_examples += remaining
+
+    def compute(self) -> Mapping[str, float]:
+        """Return ROUGE-1/2/L F-measure and their arithmetic mean."""
+        if self._n_examples == 0:
+            return {}
+
+        scores = self._rouge.compute()
+        values = {
+            key: float(scores[f"{key}_fmeasure"].item()) for key in self.ROUGE_KEYS
+        }
         return {**values, "mean": sum(values.values()) / len(values)}
