@@ -10,6 +10,8 @@
 [![Conventional Commits](https://img.shields.io/badge/Conventional%20Commits-1.0.0-FE5196?logo=conventionalcommits&logoColor=white)](https://www.conventionalcommits.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](./LICENSE.md)
 
+**English** · [Русский](./README.ru.md)
+
 **PyTorch DL Lab** is a deep learning codebase whose Transformer stack and training engine are written by hand — multi-head attention, pre-norm encoder and decoder blocks, beam search with repetition and n-gram penalties, and a `Trainer` with gradient accumulation, mixed precision and learning-rate warmup — driving ten chapters that run from a linear regression loop up to an abstractive Russian news summarizer.
 
 ## 🧱 Written from scratch
