@@ -47,9 +47,14 @@ The main reusable pieces include:
 - learning-rate warmup schedulers;
 - helpers for metrics, losses, visualizations and model checkpoints.
 
-These implementations are meant for learning and experimentation. PyTorch still
-handles tensors, automatic differentiation and low-level operations, while the
-model architecture and training logic remain visible and easy to inspect.
+Attention is assembled from four `nn.Linear` projections, a mask and a softmax.
+`nn.Transformer` and `nn.MultiheadAttention` are not used anywhere in `src`, and
+the training loop is a class in this repository rather than a framework call.
+The recurrent chapters use `nn.RNN`, `nn.LSTM` and `nn.GRU` on purpose: those
+chapters are about the sequence-to-sequence structure, not the cell.
+
+PyTorch handles tensors, automatic differentiation and low-level operations.
+Reimplementing those teaches nothing that the layers above them do not.
 
 ## 📊 Results
 
