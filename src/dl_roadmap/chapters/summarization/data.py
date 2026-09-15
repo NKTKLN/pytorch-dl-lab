@@ -4,22 +4,6 @@ from pathlib import Path
 
 import pandas as pd
 
-TEXT_WORDS = (100, 1200)
-SUMMARY_WORDS = (5, 80)
-MIN_CYRILLIC_RATIO = 0.5
-
-
-def _cyrillic_ratio(series: pd.Series) -> pd.Series:
-    """Returns each string's share of Cyrillic characters.
-
-    Args:
-        series: Strings to measure.
-
-    Returns:
-        The ratio of Cyrillic characters to total length, per row.
-    """
-    return series.str.count(r"[а-яА-ЯёЁ]") / series.str.len().clip(lower=1)
-
 
 def prepare_gazeta(
     df: pd.DataFrame,
@@ -44,15 +28,9 @@ def prepare_gazeta(
     df = df.drop(columns=["title", "date", "url"])
 
     text, summary = df["text"].str.strip(), df["summary"].str.strip()
-    text_words = text.str.split().str.len()
-    summary_words = summary.str.split().str.len()
 
     mask = (
-        text_words.between(*TEXT_WORDS)
-        & summary_words.between(*SUMMARY_WORDS)
-        & (_cyrillic_ratio(text) > MIN_CYRILLIC_RATIO)
-        & (_cyrillic_ratio(summary) > MIN_CYRILLIC_RATIO)
-        & (text.str.lower() != summary.str.lower())
+        (text.str.lower() != summary.str.lower())
         & ~text.str.contains(r"https?://|www\.", regex=True)
         & ~summary.str.contains(r"https?://|www\.", regex=True)
     )
@@ -65,3 +43,29 @@ def prepare_gazeta(
         clean.to_csv(cache_file, index=False)
 
     return clean
+
+
+def _normalized_key(series: pd.Series) -> pd.Series:
+    """Normalizes text for exact deduplication."""
+    return series.str.casefold().str.replace(r"\s+", " ", regex=True).str.strip()
+
+
+def deduplicate_split(
+    df: pd.DataFrame,
+    seen_articles: set[str],
+    seen_summaries: set[str],
+) -> tuple[pd.DataFrame, int]:
+    """Removes duplicates within a split and overlaps with earlier splits."""
+    article_keys = _normalized_key(df["text"])
+    summary_keys = _normalized_key(df["summary"])
+    keep = (
+        ~article_keys.duplicated()
+        & ~summary_keys.duplicated()
+        & ~article_keys.isin(seen_articles)
+        & ~summary_keys.isin(seen_summaries)
+    )
+
+    clean_df = df.loc[keep].reset_index(drop=True)
+    seen_articles.update(article_keys.loc[keep])
+    seen_summaries.update(summary_keys.loc[keep])
+    return clean_df, len(df) - len(clean_df)

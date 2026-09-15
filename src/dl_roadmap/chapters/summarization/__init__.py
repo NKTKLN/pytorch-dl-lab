@@ -1,6 +1,6 @@
 """Chapter 10 — transformer summarizer on the gazeta corpus."""
 
-from dl_roadmap.chapters.summarization.data import prepare_gazeta
+from dl_roadmap.chapters.summarization.data import deduplicate_split, prepare_gazeta
 from dl_roadmap.chapters.summarization.dataset import (
     SummarizationBatch,
     SummarizationDataset,
@@ -11,5 +11,6 @@ __all__ = [
     "SummarizationBatch",
     "SummarizationDataset",
     "Summarizer",
+    "deduplicate_split",
     "prepare_gazeta",
 ]

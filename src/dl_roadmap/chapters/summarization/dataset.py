@@ -15,8 +15,8 @@ SummarizationBatch = tuple[torch.Tensor, torch.Tensor, torch.Tensor]
 class SummarizationDataset(Dataset[SummarizationBatch]):
     """Article-summary pair dataset for abstractive summarization."""
 
-    MAX_TEXT_LEN: ClassVar[int] = 768
-    MAX_SUMMARY_LEN: ClassVar[int] = 128
+    MAX_ARTICLE_LENGTH: ClassVar[int] = 1280
+    MAX_SUMMARY_LENGTH: ClassVar[int] = 128
 
     def __init__(self, df: pd.DataFrame, sp: spm.SentencePieceProcessor) -> None:
         """Initializes the dataset.
@@ -33,28 +33,28 @@ class SummarizationDataset(Dataset[SummarizationBatch]):
         self._prepare()
 
     def _prepare(self) -> None:
-        """Encodes both columns, truncating sources and dropping long targets."""
+        """Encode columns, truncate sources, and drop long targets."""
         self.df["text_ids"] = self.df["text"].apply(self._encode).apply(self._truncate)
         self.df["summary_ids"] = self.df["summary"].apply(self._encode)
 
-        mask = self.df["summary_ids"].str.len() <= self.MAX_SUMMARY_LEN
+        mask = self.df["summary_ids"].str.len() <= self.MAX_SUMMARY_LENGTH
         self.df = self.df[mask].reset_index(drop=True)
 
     @classmethod
     def _truncate(cls, ids: list[int]) -> list[int]:
-        """Cuts a source sequence to `MAX_TEXT_LEN`, keeping its final token.
+        """Truncate a source sequence while preserving its final token.
 
         Args:
             ids: BOS/EOS-wrapped source token ids.
 
         Returns:
-            The ids unchanged, or their first `MAX_TEXT_LEN - 1` followed by
+            The ids unchanged, or their first `MAX_ARTICLE_LENGTH - 1` followed by
             the original trailing EOS.
         """
-        if len(ids) <= cls.MAX_TEXT_LEN:
+        if len(ids) <= cls.MAX_ARTICLE_LENGTH:
             return ids
 
-        return [*ids[: cls.MAX_TEXT_LEN - 1], ids[-1]]
+        return [*ids[: cls.MAX_ARTICLE_LENGTH - 1], ids[-1]]
 
     def _encode(self, sentence: str) -> list[int]:
         """Encodes a raw text into BOS/EOS-wrapped subword token ids.
