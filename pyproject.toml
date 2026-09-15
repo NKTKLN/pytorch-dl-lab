@@ -80,7 +80,17 @@ exclude = [
 line-length = 88
 target-version = "py313"
 extend-include = ["*.ipynb"]
-exclude = [".git", "__pycache__", "build", "dist", ".venv", "tmp", "notebooks/templates"]
+exclude = [
+  ".claude",
+  ".codex",
+  ".git",
+  ".venv",
+  "__pycache__",
+  "build",
+  "dist",
+  "notebooks/templates",
+  "tmp",
+]
 
 [tool.ruff.format]
 quote-style = "double"
