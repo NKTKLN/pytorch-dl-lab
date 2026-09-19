@@ -2,10 +2,10 @@
 
 import torch
 
-from dl_roadmap.engine.trainer import Trainer
+from dl_roadmap.engine.trainer.base import BaseTrainer
 
 
-class TeacherForcingTrainer(Trainer):
+class TeacherForcingTrainer(BaseTrainer):
     """Trainer that feeds the decoder input in both training and validation."""
 
     def _forward(

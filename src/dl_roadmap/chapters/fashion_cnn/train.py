@@ -12,7 +12,12 @@ from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
 
 from dl_roadmap.chapters.fashion_cnn.model import CnnFashionMNIST
-from dl_roadmap.engine import ClassPredictor, Trainer, TrainerConfig
+from dl_roadmap.engine import (
+    BaseTrainer,
+    ClassPredictor,
+    OptimizationEngine,
+    TrainingConfig,
+)
 from dl_roadmap.metrics import evaluate_multiclass_classification
 from dl_roadmap.utils import (
     LoadConfig,
@@ -61,7 +66,7 @@ def _run_training(
     training_config: dict[str, Any],
     skip_training: bool,
 ) -> tuple[nn.Module, dict[str, list[float]]]:
-    """Build the model, optimizer, and Trainer, then run the training loop.
+    """Build the model, optimizer, and trainer, then run the training loop.
 
     Args:
         train_loader: DataLoader for the training split.
@@ -84,7 +89,7 @@ def _run_training(
         load_model(model, model_path)
         return model, {}
 
-    trainer_config = TrainerConfig(
+    trainer_config = TrainingConfig(
         epochs=training_config.get("epochs", 1),
         device=training_config.get("device"),
         checkpoint_dir=training_config.get("checkpoint_dir", ""),
@@ -97,7 +102,12 @@ def _run_training(
     loss_fn = nn.CrossEntropyLoss()
     logger.info(f"Optimizer: Adam(lr={lr}), Loss: CrossEntropyLoss")
 
-    trainer = Trainer(model, optimizer, loss_fn, config=trainer_config)
+    trainer = BaseTrainer(
+        model,
+        loss_fn,
+        config=trainer_config,
+        optimization=OptimizationEngine(optimizer),
+    )
     trainer.fit(train_loader, val_loader)
     history = trainer.history
 

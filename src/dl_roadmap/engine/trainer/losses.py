@@ -5,8 +5,9 @@ from dataclasses import dataclass
 import torch
 from torch import nn
 
-from dl_roadmap.engine.loss_tracker import LossTracker, PerTokenLossTracker
-from dl_roadmap.engine.trainer import GradNormalizer, LossFn
+from dl_roadmap.engine.trainer.base import LossFn
+from dl_roadmap.engine.trainer.loss_tracker import LossTracker, PerTokenLossTracker
+from dl_roadmap.engine.trainer.optimization import GradNormalizer
 
 
 @dataclass(frozen=True)
@@ -14,9 +15,9 @@ class LossBundle:
     """A loss function together with the trainer settings it needs.
 
     Attributes:
-        loss_fn: Callable passed to `Trainer` as its loss.
+        loss_fn: Callable passed to `BaseTrainer` as its loss.
         loss_tracker: Tracker aggregating that loss over an epoch.
-        grad_normalizer: Value `TrainerConfig.grad_normalizer` must take
+        grad_normalizer: Value `OptimizationConfig.grad_normalizer` must take
             for the accumulated gradient to be normalized consistently
             with `loss_fn`'s reduction.
     """

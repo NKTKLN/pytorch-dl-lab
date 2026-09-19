@@ -6,7 +6,7 @@ import sentencepiece as spm
 import torch
 from torch import nn
 
-from dl_roadmap.engine.beam_search import beam_search
+from dl_roadmap.engine.utils.beam_search import beam_search
 from dl_roadmap.layers.positional import PositionalEncoding
 from dl_roadmap.layers.transformer import TransformerDecoder, TransformerEncoder
 

@@ -9,7 +9,7 @@ from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 
 from dl_roadmap.data import make_synthetic_regression_dataset
-from dl_roadmap.engine import Trainer, TrainerConfig
+from dl_roadmap.engine import BaseTrainer, OptimizationEngine, TrainingConfig
 from dl_roadmap.utils import LoadConfig, LoggerConfig, seed_everything, setup_logger
 from dl_roadmap.visualization import plot_training_history
 
@@ -65,7 +65,7 @@ def _run_training(
     n_features: int,
     training_config: dict[str, Any],
 ) -> dict[str, list[float]]:
-    """Build the model, optimizer, and Trainer, then run the training loop.
+    """Build the model, optimizer, and trainer, then run the training loop.
 
     Args:
         train_loader: DataLoader for the training split.
@@ -77,7 +77,7 @@ def _run_training(
     Returns:
         Training history dict with "train_loss" and "val_loss" per-epoch lists.
     """
-    trainer_config = TrainerConfig(
+    trainer_config = TrainingConfig(
         epochs=training_config.get("epochs", 1),
         device=training_config.get("device"),
         checkpoint_dir=training_config.get("checkpoint_dir", ""),
@@ -92,7 +92,12 @@ def _run_training(
     loss_fn = nn.MSELoss()
     logger.info(f"Optimizer: SGD(lr={lr}), Loss: MSELoss")
 
-    trainer = Trainer(model, optimizer, loss_fn, config=trainer_config)
+    trainer = BaseTrainer(
+        model,
+        loss_fn,
+        config=trainer_config,
+        optimization=OptimizationEngine(optimizer),
+    )
     trainer.fit(train_loader, val_loader)
     history = trainer.history
 

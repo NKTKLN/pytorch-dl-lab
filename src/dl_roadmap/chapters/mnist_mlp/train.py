@@ -10,7 +10,12 @@ from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
 
 from dl_roadmap.chapters.mnist_mlp.model import MLP_MNIST
-from dl_roadmap.engine import ClassPredictor, Trainer, TrainerConfig
+from dl_roadmap.engine import (
+    BaseTrainer,
+    ClassPredictor,
+    OptimizationEngine,
+    TrainingConfig,
+)
 from dl_roadmap.utils import LoadConfig, LoggerConfig, seed_everything, setup_logger
 from dl_roadmap.visualization import plot_confusion_matrix, plot_training_history
 
@@ -50,7 +55,7 @@ def _run_training(
     val_loader: DataLoader,
     training_config: dict[str, Any],
 ) -> tuple[nn.Module, dict[str, list[float]]]:
-    """Build the model, optimizer, and Trainer, then run the training loop.
+    """Build the model, optimizer, and trainer, then run the training loop.
 
     Args:
         train_loader: DataLoader for the training split.
@@ -62,7 +67,7 @@ def _run_training(
         Tuple of (trained model, training history dict with "train_loss" and
         "val_loss" per-epoch lists).
     """
-    trainer_config = TrainerConfig(
+    trainer_config = TrainingConfig(
         epochs=training_config.get("epochs", 1),
         device=training_config.get("device"),
         checkpoint_dir=training_config.get("checkpoint_dir", ""),
@@ -78,7 +83,12 @@ def _run_training(
     loss_fn = nn.CrossEntropyLoss()
     logger.info(f"Optimizer: Adam(lr={lr}), Loss: CrossEntropyLoss")
 
-    trainer = Trainer(model, optimizer, loss_fn, config=trainer_config)
+    trainer = BaseTrainer(
+        model,
+        loss_fn,
+        config=trainer_config,
+        optimization=OptimizationEngine(optimizer),
+    )
     trainer.fit(train_loader, val_loader)
     history = trainer.history
 
