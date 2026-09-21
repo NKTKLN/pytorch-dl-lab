@@ -36,7 +36,9 @@ class FFN(nn.Module):
         """
         hidden = self.expand(x)
         hidden = F.gelu(hidden)
-        return self.project(hidden)
+        projected: torch.Tensor = self.project(hidden)
+
+        return projected
 
 
 class TransformerEncoderLayer(nn.Module):
@@ -99,7 +101,9 @@ class TransformerEncoderLayer(nn.Module):
         hidden = self.norm_2(x)
         ffn_output = self.ffn(hidden)
 
-        return x + self.dropout(ffn_output)
+        output: torch.Tensor = x + self.dropout(ffn_output)
+
+        return output
 
 
 class TransformerDecoderLayer(nn.Module):
@@ -183,7 +187,9 @@ class TransformerDecoderLayer(nn.Module):
         hidden = self.norm_3(x)
         ffn_output = self.ffn(hidden)
 
-        return x + self.dropout(ffn_output)
+        output: torch.Tensor = x + self.dropout(ffn_output)
+
+        return output
 
 
 class TransformerEncoder(nn.Module):
@@ -234,7 +240,9 @@ class TransformerEncoder(nn.Module):
         """
         for layer in self.layers:
             x = layer(x, key_padding_mask=key_padding_mask)
-        return self.norm(x)
+        normalized: torch.Tensor = self.norm(x)
+
+        return normalized
 
 
 class TransformerDecoder(nn.Module):
@@ -296,4 +304,6 @@ class TransformerDecoder(nn.Module):
                 tgt_key_padding_mask=tgt_key_padding_mask,
                 memory_key_padding_mask=memory_key_padding_mask,
             )
-        return self.norm(x)
+        normalized: torch.Tensor = self.norm(x)
+
+        return normalized

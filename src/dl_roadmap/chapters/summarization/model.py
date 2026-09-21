@@ -114,7 +114,9 @@ class Summarizer(nn.Module):
         """
         x = self.embedding(x) * math.sqrt(self.model_dim)
         x = self.positional_encoding(x)
-        return self.dropout(x)
+        embedded: torch.Tensor = self.dropout(x)
+
+        return embedded
 
     def encode(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """Encodes the source sequence into decoder memory.
@@ -163,7 +165,9 @@ class Summarizer(nn.Module):
             memory_key_padding_mask=memory_key_padding_mask,
         )
 
-        return self.output_projection(decoder_output)
+        logits: torch.Tensor = self.output_projection(decoder_output)
+
+        return logits
 
     def forward(self, x: torch.Tensor, decoder_input: torch.Tensor) -> torch.Tensor:
         """Encodes the source and decodes the target sequence in parallel.

@@ -52,5 +52,5 @@ class CharRNN(nn.Module):
         """
         emb = self.embedding(x)
         out, _hidden = self.rnn(emb)
-        logits = self.fc(out)
+        logits: torch.Tensor = self.fc(out)
         return logits

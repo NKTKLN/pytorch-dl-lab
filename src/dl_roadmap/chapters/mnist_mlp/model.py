@@ -28,4 +28,5 @@ class MLP_MNIST(nn.Module):
         Returns:
             Logits of shape (batch, 10).
         """
-        return self.net(x)
+        logits: torch.Tensor = self.net(x)
+        return logits

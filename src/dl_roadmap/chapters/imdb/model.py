@@ -88,5 +88,5 @@ class ImdbLSTM(nn.Module):
         features = self.norm(combined_hid)
         features = self.drop(features)
 
-        logits = self.fc(features)
+        logits: torch.Tensor = self.fc(features)
         return logits

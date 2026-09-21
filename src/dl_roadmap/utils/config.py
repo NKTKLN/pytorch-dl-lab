@@ -25,8 +25,11 @@ class LoadConfig:
 
         self._config: dict[str, Any] | None = None
 
-    def load(self) -> None:
+    def load(self) -> dict[str, Any]:
         """Read the YAML config file from disk and cache its content.
+
+        Returns:
+            dict[str, Any]: The parsed config content.
 
         Raises:
             yaml.YAMLError: If the file content is not valid YAML.
@@ -43,10 +46,12 @@ class LoadConfig:
 
         self._config = config
 
+        return config
+
     @property
     def config(self) -> dict[str, Any]:
         """Return the config content, loading it from disk if needed."""
         if self._config is None:
-            self.load()
+            return self.load()
 
         return self._config

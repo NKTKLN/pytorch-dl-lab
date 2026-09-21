@@ -124,7 +124,8 @@ def _save_plots(
     figure_path = figures_dir / "train-val-loss.png"
 
     plot_training_history(
-        **history,
+        history["train_loss"],
+        history["val_loss"],
         filename=str(figure_path),
         show_fig=visualization_config.get("show_fig", False),
     )
@@ -138,7 +139,7 @@ def main() -> None:
 
     setup_logger(LoggerConfig(**config.get("logging", {})))
 
-    seed_everything(config.get("seed", None))
+    seed_everything(int(config.get("seed", 42)))
 
     data_config = config.get("data", {})
     train_loader, val_loader = _generate_dataloaders(data_config)

@@ -178,7 +178,7 @@ class BaseTrainer:
                 for callback in self.callbacks:
                     callback(epoch, train_loss, val_loss)
 
-                pbar.set_postfix(**loss_data)
+                pbar.set_postfix(loss_data)
 
                 if self.early_stopping is not None:
                     self.early_stopping.update(
@@ -189,7 +189,7 @@ class BaseTrainer:
                         best_state = deepcopy(self.model.state_dict())
 
                     if self.early_stopping.should_stop:
-                        pbar.set_postfix(**loss_data, status="early stopped")
+                        pbar.set_postfix(loss_data | {"status": "early stopped"})
                         break
 
                 if (
@@ -353,7 +353,7 @@ class BaseTrainer:
                 )
 
                 if pbar is not None:
-                    pbar.set_postfix(**self.metrics.running_postfix(self.history))
+                    pbar.set_postfix(self.metrics.running_postfix(self.history))
                     pbar.update(1)
 
         if train and optimization is not None:

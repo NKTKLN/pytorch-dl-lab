@@ -29,7 +29,7 @@ class CnnBlock(nn.Module):
         Returns:
             Feature map of shape (batch, out_channels, H/2, W/2).
         """
-        block_out = self.conv(x)
+        block_out: Tensor = self.conv(x)
         block_out = self.norm(block_out)
         block_out = self.relu(block_out)
         block_out = self.maxpool(block_out)

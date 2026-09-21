@@ -115,7 +115,12 @@ def _save_plots(
     show_fig = visualization_config.get("show_fig", False)
 
     loss_path = figures_dir / "train-val-loss.png"
-    plot_training_history(**history, filename=str(loss_path), show_fig=show_fig)
+    plot_training_history(
+        history["train_loss"],
+        history["val_loss"],
+        filename=str(loss_path),
+        show_fig=show_fig,
+    )
     logger.info(f"Saved training plot: {loss_path}")
 
     predictor = ClassPredictor(model)
@@ -137,7 +142,7 @@ def main() -> None:
 
     setup_logger(LoggerConfig(**config.get("logging", {})))
 
-    seed_everything(config.get("seed", None))
+    seed_everything(int(config.get("seed", 42)))
 
     train_loader, val_loader = _generate_dataloaders(config.get("data", {}))
 
