@@ -260,9 +260,10 @@ class BaseTrainer[BatchT: Batch]:
         """Collect model predictions for every batch in `loader`.
 
         Args:
-            loader: Batches whose first tensor holds the inputs. Any further
-                tensors are passed on as extras; no targets are read, so a
-                loader of inputs alone works.
+            loader: Batches whose first tensor holds the inputs. The batch
+                reaches `_forward` whole, targets included when the loader
+                yields them, so an override that must not see them checks
+                `ctx.phase`. A loader of inputs alone works too.
 
         Returns:
             torch.Tensor: Predictions for all batches, concatenated on CPU.
