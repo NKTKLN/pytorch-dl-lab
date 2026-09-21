@@ -1,10 +1,9 @@
 """Orchestrate training: run the loop and delegate the work to collaborators."""
 
 from collections.abc import Callable, Iterable
-from contextlib import nullcontext
 from copy import deepcopy
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import torch
 from loguru import logger
@@ -12,12 +11,23 @@ from torch import nn
 from tqdm import tqdm
 
 from dl_roadmap.engine.trainer.config import TrainingConfig
+from dl_roadmap.engine.trainer.context import Phase, StepContext
 from dl_roadmap.engine.trainer.early_stopping import EarlyStopping
 from dl_roadmap.engine.trainer.metrics_manager import MetricsManager
-from dl_roadmap.engine.trainer.optimization import OptimizationEngine
+from dl_roadmap.engine.trainer.optimization import NoOptimization, Optimization
 from dl_roadmap.engine.trainer.state_store import TrainerStateStore
 
-Batch = tuple[torch.Tensor, torch.Tensor]
+Batch = tuple[torch.Tensor, ...]
+"""One batch: inputs, then targets, then any extra tensors the model needs.
+
+The trainer reads the first two positions and hands the batch to `_forward`
+whole, so a collate function is free to append its own tensors — a decoder
+input, a mask — and a `NamedTuple` batch keeps its field names all the way
+into `_forward`.
+"""
+
+PairBatch = tuple[torch.Tensor, torch.Tensor]
+"""The common case: inputs and targets, nothing else."""
 LossFn = Callable[[torch.Tensor, torch.Tensor], torch.Tensor]
 EpochCallback = Callable[[int, float, float | None], None]
 
@@ -26,7 +36,7 @@ BAR_FORMAT = (
 )
 
 
-class BaseTrainer:
+class BaseTrainer[BatchT: Batch]:
     """Train and evaluate supervised PyTorch models."""
 
     def __init__(  # noqa: PLR0913
@@ -34,7 +44,7 @@ class BaseTrainer:
         model: nn.Module,
         loss_fn: LossFn,
         config: TrainingConfig | None = None,
-        optimization: OptimizationEngine | None = None,
+        optimization: Optimization | None = None,
         metrics: MetricsManager | None = None,
         early_stopping: EarlyStopping | None = None,
         callbacks: list[EpochCallback] | None = None,
@@ -46,9 +56,9 @@ class BaseTrainer:
             loss_fn: Compute a scalar loss from predictions and targets.
             config: Training lifecycle options. None creates a default
                 `TrainingConfig`.
-            optimization: Engine owning the optimizer step. None leaves the
-                trainer in evaluation mode: `evaluate` and `predict` work,
-                `fit` raises.
+            optimization: Engine owning the optimizer step. None installs
+                `NoOptimization`, leaving the trainer in evaluation mode:
+                `evaluate` and `predict` work, `fit` raises.
             metrics: Loss tracker and metrics. None creates a default
                 `MetricsManager` averaging batch losses.
             early_stopping: Strategy selecting the best epoch and deciding
@@ -62,13 +72,12 @@ class BaseTrainer:
 
         self.model = model.to(self.device)
         self.loss_fn = loss_fn
-        self.optimization = optimization
+        self.optimization = optimization or NoOptimization()
         self.metrics = metrics or MetricsManager()
         self.early_stopping = early_stopping
         self.callbacks = callbacks or []
 
-        if self.optimization is not None:
-            self.optimization.prepare(self.device)
+        self.optimization.prepare(self.device)
 
         self.state_store = TrainerStateStore(
             self.model, self.optimization, self.config.checkpoint_dir
@@ -77,7 +86,7 @@ class BaseTrainer:
         logger.debug(
             f"Trainer initialized: model={type(model).__name__}, "
             f"device={self.device}, "
-            f"optimization={'on' if self.optimization is not None else 'off'}"
+            f"optimization={'on' if self.optimization.can_step else 'off'}"
         )
 
     @property
@@ -85,44 +94,68 @@ class BaseTrainer:
         """Return the training history recorded so far."""
         return self.state_store.history
 
-    def _forward(
-        self,
-        inputs: torch.Tensor,
-        _targets: torch.Tensor,
-        _extras: list[torch.Tensor],
-        _train: bool,
-    ) -> torch.Tensor:
+    def _forward(self, batch: BatchT, _ctx: StepContext) -> torch.Tensor:
         """Compute model predictions for a batch.
 
         Args:
-            inputs: Batch inputs on `self.device`.
-            _targets: Batch targets on `self.device`; unused by this implementation.
-            _extras: Additional batch tensors on `self.device`; unused here.
-            _train: Whether this is a training pass; unused here.
+            batch: Every tensor of the batch, already on `self.device`, with
+                its own type — field names included for a `NamedTuple` batch.
+            _ctx: Phase, epoch and step the batch belongs to; unused here.
 
         Returns:
             torch.Tensor: Model predictions passed to `self.loss_fn`.
         """
-        return self.model(inputs)  # type: ignore[no-any-return]
+        return self.model(batch[0])  # type: ignore[no-any-return]
+
+    def _targets(self, batch: BatchT) -> torch.Tensor | None:
+        """Return the tensor `loss_fn` and the metrics compare against.
+
+        Args:
+            batch: Every tensor of the batch, already on `self.device`.
+
+        Returns:
+            torch.Tensor | None: The second tensor, or None for a batch of
+                inputs alone, as `predict` allows.
+        """
+        return batch[1] if len(batch) > 1 else None
+
+    def _to_device(self, batch: BatchT) -> BatchT:
+        """Move every tensor of a batch to `self.device`, keeping its type.
+
+        Args:
+            batch: Batch as the loader yielded it.
+
+        Returns:
+            BatchT: The same kind of batch, tensor by tensor on the device.
+                A `NamedTuple` is rebuilt through `_make`, so it keeps its
+                field names; anything else comes back a plain tuple.
+        """
+        moved = [tensor.to(self.device) for tensor in batch]
+        make = getattr(batch, "_make", None)
+
+        if make is not None:
+            return cast(BatchT, make(moved))
+
+        return cast(BatchT, tuple(moved))
 
     def fit(
         self,
-        train_loader: Iterable[Batch],
-        val_loader: Iterable[Batch] | None = None,
+        train_loader: Iterable[BatchT],
+        val_loader: Iterable[BatchT] | None = None,
     ) -> None:
         """Run the training loop for `config.epochs` epochs.
 
         Args:
-            train_loader: Batches of (inputs, targets) used for training.
-            val_loader: Optional batches of (inputs, targets) used for
-                per-epoch validation. Required if `early_stopping` is set.
+            train_loader: Batches of (inputs, targets, *extras) used for training.
+            val_loader: Optional batches of (inputs, targets, *extras) used
+                for per-epoch validation. Required if `early_stopping` is set.
 
         Raises:
             ValueError: If no `optimization` engine is configured, if
                 `early_stopping` is set but no `val_loader` is given, or if
                 `scheduler` is a `ReduceLROnPlateau` and no `val_loader` is given.
         """
-        if self.optimization is None:
+        if not self.optimization.can_step:
             raise ValueError("fit requires an OptimizationEngine.")
 
         if self.early_stopping is not None and val_loader is None:
@@ -156,7 +189,7 @@ class BaseTrainer:
                 )
 
                 train_loss, train_metrics = self._run_epoch(
-                    train_loader, train=True, pbar=pbar
+                    train_loader, phase="train", epoch=epoch, pbar=pbar
                 )
                 self.history["train_loss"].append(train_loss)
 
@@ -165,7 +198,9 @@ class BaseTrainer:
                 val_loss: float | None = None
                 val_metrics: dict[str, float] | None = None
                 if val_loader is not None:
-                    val_loss, val_metrics = self._run_epoch(val_loader, train=False)
+                    val_loss, val_metrics = self._run_epoch(
+                        val_loader, phase="val", epoch=epoch
+                    )
                     self.history["val_loss"].append(val_loss)
                     loss_data["val_loss"] = f"{val_loss:.4g}"
 
@@ -209,36 +244,39 @@ class BaseTrainer:
 
         logger.debug("Training complete")
 
-    def evaluate(self, loader: Iterable[Batch]) -> tuple[float, dict[str, float]]:
+    def evaluate(self, loader: Iterable[BatchT]) -> tuple[float, dict[str, float]]:
         """Run one evaluation pass, without touching the optimizer.
 
         Args:
-            loader: Batches of (inputs, targets) to evaluate on.
+            loader: Batches of (inputs, targets, *extras) to evaluate on.
 
         Returns:
             tuple[float, dict[str, float]]: The average loss over the pass and
                 each configured metric's value.
         """
-        return self._run_epoch(loader, train=False)
+        return self._run_epoch(loader, phase="val")
 
-    def predict(self, loader: Iterable[Batch]) -> torch.Tensor:
+    def predict(self, loader: Iterable[BatchT]) -> torch.Tensor:
         """Collect model predictions for every batch in `loader`.
 
         Args:
-            loader: Batches whose first tensor holds the inputs.
+            loader: Batches whose first tensor holds the inputs. Any further
+                tensors are passed on as extras; no targets are read, so a
+                loader of inputs alone works.
 
         Returns:
             torch.Tensor: Predictions for all batches, concatenated on CPU.
         """
         self.model.eval()
+        ctx = StepContext(phase="predict", step=self.optimization.steps)
         outputs: list[torch.Tensor] = []
 
         with torch.no_grad():
-            for batch in loader:
-                inputs, targets, *extras = (t.to(self.device) for t in batch)
+            for raw_batch in loader:
+                batch = self._to_device(raw_batch)
 
-                with self._autocast():
-                    predictions = self._forward(inputs, targets, extras, False)
+                with self.optimization.autocast():
+                    predictions = self._forward(batch, ctx)
 
                 outputs.append(predictions.detach().float().cpu())
 
@@ -289,54 +327,64 @@ class BaseTrainer:
         """
         return self.state_store.load(path, map_location=self.device)
 
-    def _autocast(self) -> Any:
-        """Return the autocast context, or a no-op one without optimization."""
-        if self.optimization is None:
-            return nullcontext()
-
-        return self.optimization.autocast()
-
     def _run_epoch(
         self,
-        loader: Iterable[Batch],
-        train: bool,
+        loader: Iterable[BatchT],
+        phase: Phase,
+        epoch: int = 0,
         pbar: Any | None = None,
     ) -> tuple[float, dict[str, float]]:
         """Run a single train or evaluation pass over `loader`.
 
         Args:
-            loader: Batches of (inputs, targets).
-            train: If True, run in training mode with gradient updates;
-                otherwise run in evaluation mode under `torch.no_grad()`.
+            loader: Batches of (inputs, targets, *extras).
+            phase: "train" runs with gradient updates, "val" runs under
+                `torch.no_grad()`.
+            epoch: Epoch this pass belongs to, counted from 1; 0 outside `fit`.
             pbar: Progress bar to update with running loss after each batch.
                 If None, no progress bar is updated.
 
         Returns:
             tuple[float, dict[str, float]]: The average loss over all batches,
                 and each configured metric's value over the same pass.
-        """
-        mode = "train" if train else "eval"
-        logger.debug(f"Running epoch in {mode} mode")
 
-        self.model.train(mode=train)
+        Raises:
+            ValueError: If a batch carries no targets to compare against.
+        """
+        is_training = phase == "train"
+        logger.debug(f"Running epoch in {phase} mode")
+
+        self.model.train(mode=is_training)
         self.metrics.reset()
 
         optimization = self.optimization
         weigh_by_loss = (
-            train
-            and optimization is not None
-            and optimization.config.grad_normalizer == "loss_weights"
+            is_training and optimization.config.grad_normalizer == "loss_weights"
         )
 
-        with torch.enable_grad() if train else torch.no_grad():
-            for batch in loader:
-                inputs, targets, *extras = (t.to(self.device) for t in batch)
+        with torch.enable_grad() if is_training else torch.no_grad():
+            for raw_batch in loader:
+                batch = self._to_device(raw_batch)
+                targets = self._targets(batch)
 
-                with self._autocast():
-                    predictions = self._forward(inputs, targets, extras, train)
+                if targets is None:
+                    raise ValueError(
+                        f"{phase} batches need targets; got a batch of "
+                        f"{len(batch)} tensor(s)."
+                    )
+
+                ctx = StepContext(
+                    phase=phase,
+                    epoch=epoch,
+                    epochs=self.config.epochs,
+                    step=self.optimization.steps,
+                )
+
+                with self.optimization.autocast():
+                    predictions = self._forward(batch, ctx)
                     loss = self.loss_fn(predictions, targets)
 
-                if train and optimization is not None:
+                if is_training:
                     weight = (
                         self.metrics.batch_weight(targets) if weigh_by_loss else 1.0
                     )
@@ -345,18 +393,18 @@ class BaseTrainer:
 
                 self.metrics.update(
                     loss.detach().float(),
-                    inputs,
+                    batch[0],
                     targets,
-                    extras,
+                    list(batch[2:]),
                     predictions.detach(),
-                    train,
+                    ctx,
                 )
 
                 if pbar is not None:
                     pbar.set_postfix(self.metrics.running_postfix(self.history))
                     pbar.update(1)
 
-        if train and optimization is not None:
+        if is_training:
             optimization.flush()
 
         avg_loss = self.metrics.loss()
@@ -365,6 +413,6 @@ class BaseTrainer:
         metrics_repr = "".join(
             f", {name}={value:.4f}" for name, value in values.items()
         )
-        logger.debug(f"Epoch {mode} pass: avg_loss={avg_loss:.4f}{metrics_repr}")
+        logger.debug(f"Epoch {phase} pass: avg_loss={avg_loss:.4f}{metrics_repr}")
 
         return avg_loss, values

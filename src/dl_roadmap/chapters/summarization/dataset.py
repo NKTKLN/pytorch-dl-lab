@@ -1,7 +1,7 @@
 """Dataset and collation for abstractive summarization."""
 
 from collections.abc import Callable
-from typing import ClassVar
+from typing import ClassVar, NamedTuple
 
 import pandas as pd
 import sentencepiece as spm
@@ -9,7 +9,21 @@ import torch
 from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import Dataset
 
-SummarizationBatch = tuple[torch.Tensor, torch.Tensor, torch.Tensor]
+
+class SummarizationBatch(NamedTuple):
+    """One article with the two views of its summary the decoder needs.
+
+    Attributes:
+        source: Article token ids.
+        target: Summary token ids without the leading ``<BOS>`` — what the
+            decoder has to predict at each position.
+        decoder_input: Summary token ids without the trailing ``<EOS>`` — what
+            the decoder is fed at each position, one step behind `target`.
+    """
+
+    source: torch.Tensor
+    target: torch.Tensor
+    decoder_input: torch.Tensor
 
 
 class SummarizationDataset(Dataset[SummarizationBatch]):
@@ -79,9 +93,9 @@ class SummarizationDataset(Dataset[SummarizationBatch]):
             idx: Index of the pair in the dataset.
 
         Returns:
-            A tuple of the source token ids, the target token ids
-            (``summary`` without the leading ``<BOS>``), and the decoder
-            input token ids (``summary`` without the trailing ``<EOS>``).
+            SummarizationBatch: The source ids, and the summary shifted by one
+                so that position i of `decoder_input` predicts position i of
+                `target`.
         """
         row = self.df.iloc[idx]
         input_data, output_data = row["text_ids"], row["summary_ids"]
@@ -89,7 +103,7 @@ class SummarizationDataset(Dataset[SummarizationBatch]):
         x = torch.tensor(input_data, dtype=torch.long)
         y = torch.tensor(output_data, dtype=torch.long)
 
-        return x, y[1:], y[:-1]
+        return SummarizationBatch(source=x, target=y[1:], decoder_input=y[:-1])
 
 
 def make_collate_fn(
@@ -108,19 +122,20 @@ def make_collate_fn(
         """Pads a batch of source/target/decoder-input token id sequences.
 
         Args:
-            batch: A list of (source, target, decoder input) token id
-                sequence triples of variable length.
+            batch: Per-example batches of variable length.
 
         Returns:
-            A tuple of the padded source, target, and decoder input token
-            id tensors, all shaped ``batch_size x max_seq_len``.
+            SummarizationBatch: The padded source, target and decoder input
+                tensors, all shaped ``batch_size x max_seq_len``.
         """
-        inputs, targets, decoder_inputs = zip(*batch)
+        sources, targets, decoder_inputs = zip(*batch)
 
-        return (
-            pad_sequence(list(inputs), batch_first=True, padding_value=pad_id),
-            pad_sequence(list(targets), batch_first=True, padding_value=pad_id),
-            pad_sequence(list(decoder_inputs), batch_first=True, padding_value=pad_id),
+        return SummarizationBatch(
+            source=pad_sequence(list(sources), batch_first=True, padding_value=pad_id),
+            target=pad_sequence(list(targets), batch_first=True, padding_value=pad_id),
+            decoder_input=pad_sequence(
+                list(decoder_inputs), batch_first=True, padding_value=pad_id
+            ),
         )
 
     return collate_fn

@@ -1,5 +1,7 @@
 """Owns the optimizer step: AMP, accumulation, clipping and scheduling."""
 
+from abc import ABC, abstractmethod
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass
 from typing import Any, Literal, get_args
 
@@ -58,8 +60,174 @@ class OptimizationConfig:
             raise ValueError(f"Unknown amp mode {self.amp!r}.")
 
 
-class OptimizationEngine:
+class Optimization(ABC):
+    """What a trainer needs from whatever drives the optimizer step.
+
+    Attributes:
+        can_step: Whether this implementation updates the model at all.
+            `fit` refuses to run without it.
+        config: Settings the trainer reads, such as `grad_normalizer`.
+        steps: Optimizer steps performed so far.
+    """
+
+    can_step: bool
+    config: OptimizationConfig
+    steps: int
+
+    @abstractmethod
+    def prepare(self, device: torch.device) -> "Optimization":
+        """Bind the implementation to the device training runs on.
+
+        Args:
+            device: Device the model and batches live on.
+
+        Returns:
+            Optimization: This object, for chaining.
+        """
+
+    @abstractmethod
+    def autocast(self) -> AbstractContextManager[None]:
+        """Return the context the forward pass runs in.
+
+        Returns:
+            AbstractContextManager[None]: Autocast context, or a no-op one.
+        """
+
+    @abstractmethod
+    def backward(self, loss: torch.Tensor, batch_weight: float = 1.0) -> None:
+        """Back-propagate one micro-batch.
+
+        Args:
+            loss: Scalar loss for the micro-batch just processed.
+            batch_weight: Weight this micro-batch contributes to the window.
+        """
+
+    @abstractmethod
+    def step_if_ready(self) -> bool:
+        """Step the optimizer once the accumulation window is full.
+
+        Returns:
+            bool: True if the optimizer stepped.
+        """
+
+    @abstractmethod
+    def flush(self) -> bool:
+        """Step on micro-batches left over at the end of an epoch.
+
+        Returns:
+            bool: True if the optimizer stepped.
+        """
+
+    @abstractmethod
+    def step_epoch(self, val_loss: float | None = None) -> None:
+        """Advance the learning-rate schedule at epoch end.
+
+        Args:
+            val_loss: Validation loss, for schedulers that need it.
+        """
+
+    @abstractmethod
+    def state_dict(self) -> dict[str, Any]:
+        """Return the state a checkpoint has to carry.
+
+        Returns:
+            dict[str, Any]: State to hand back to `load_state_dict`.
+        """
+
+    @abstractmethod
+    def load_state_dict(self, state: dict[str, Any]) -> None:
+        """Restore state written by `state_dict`.
+
+        Args:
+            state: Mapping returned by `state_dict`.
+        """
+
+
+class NoOptimization(Optimization):
+    """Stand-in for a trainer that only evaluates or predicts."""
+
+    can_step = False
+
+    def __init__(self) -> None:
+        """Start with default settings and no steps to take."""
+        self.config = OptimizationConfig()
+        self.steps = 0
+
+    def prepare(self, _device: torch.device) -> "NoOptimization":
+        """Ignore the device, since nothing here depends on it.
+
+        Args:
+            _device: Device the model and batches live on; unused.
+
+        Returns:
+            NoOptimization: This object, for chaining.
+        """
+        return self
+
+    def autocast(self) -> AbstractContextManager[None]:
+        """Return a no-op context, leaving the forward pass in full precision.
+
+        Returns:
+            AbstractContextManager[None]: A context that does nothing.
+        """
+        return nullcontext()
+
+    def backward(self, _loss: torch.Tensor, _batch_weight: float = 1.0) -> None:
+        """Refuse to back-propagate, since there is no optimizer.
+
+        Args:
+            _loss: Scalar loss for the micro-batch just processed; unused.
+            _batch_weight: Weight this micro-batch would contribute; unused.
+
+        Raises:
+            RuntimeError: Always; reaching this means a training pass ran
+                without an `OptimizationEngine`.
+        """
+        raise RuntimeError("Cannot train without an OptimizationEngine.")
+
+    def step_if_ready(self) -> bool:
+        """Report that no optimizer stepped.
+
+        Returns:
+            bool: Always False.
+        """
+        return False
+
+    def flush(self) -> bool:
+        """Report that no optimizer stepped.
+
+        Returns:
+            bool: Always False.
+        """
+        return False
+
+    def step_epoch(self, _val_loss: float | None = None) -> None:
+        """Do nothing, since there is no schedule to advance.
+
+        Args:
+            _val_loss: Validation loss, for schedulers that need it; unused.
+        """
+
+    def state_dict(self) -> dict[str, Any]:
+        """Return nothing to save.
+
+        Returns:
+            dict[str, Any]: An empty mapping.
+        """
+        return {}
+
+    def load_state_dict(self, _state: dict[str, Any]) -> None:
+        """Ignore saved optimizer state.
+
+        Args:
+            _state: Mapping returned by `state_dict`; unused.
+        """
+
+
+class OptimizationEngine(Optimization):
     """Run backward passes and optimizer steps for a trainer."""
+
+    can_step = True
 
     def __init__(
         self,
@@ -89,6 +257,8 @@ class OptimizationEngine:
 
         self._pending_micro_batches = 0
         self._window_weight = 0.0
+
+        self.steps = 0
 
     @property
     def scaler(self) -> torch.amp.GradScaler:
@@ -263,7 +433,12 @@ class OptimizationEngine:
 
         stepped = self.scaler.get_scale() >= scale_before
 
-        if stepped and isinstance(self.scheduler, WarmupScheduler):
+        if not stepped:
+            return
+
+        self.steps += 1
+
+        if isinstance(self.scheduler, WarmupScheduler):
             self.scheduler.step_batch()
 
     def step_epoch(self, val_loss: float | None = None) -> None:
@@ -299,6 +474,7 @@ class OptimizationEngine:
                 self.scheduler.state_dict() if self.scheduler is not None else None
             ),
             "scaler": self.scaler.state_dict() if self._scaler is not None else None,
+            "steps": self.steps,
         }
 
     def load_state_dict(self, state: dict[str, Any]) -> None:
@@ -317,3 +493,5 @@ class OptimizationEngine:
         scaler_state = state.get("scaler")
         if scaler_state is not None and self._scaler is not None:
             self._scaler.load_state_dict(scaler_state)
+
+        self.steps = int(state.get("steps", 0))

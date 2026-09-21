@@ -16,6 +16,7 @@ from dl_roadmap.engine import (
     BaseTrainer,
     ClassPredictor,
     OptimizationEngine,
+    PairBatch,
     TrainingConfig,
 )
 from dl_roadmap.metrics import evaluate_multiclass_classification
@@ -102,7 +103,7 @@ def _run_training(
     loss_fn = nn.CrossEntropyLoss()
     logger.info(f"Optimizer: Adam(lr={lr}), Loss: CrossEntropyLoss")
 
-    trainer = BaseTrainer(
+    trainer: BaseTrainer[PairBatch] = BaseTrainer(
         model,
         loss_fn,
         config=trainer_config,

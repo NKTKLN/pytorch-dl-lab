@@ -5,8 +5,10 @@ from dl_roadmap.engine.trainer.base import (
     Batch,
     EpochCallback,
     LossFn,
+    PairBatch,
 )
 from dl_roadmap.engine.trainer.config import TrainingConfig
+from dl_roadmap.engine.trainer.context import Phase, StepContext
 from dl_roadmap.engine.trainer.early_stopping import (
     CombinedEarlyStopping,
     EarlyStopping,
@@ -32,6 +34,8 @@ from dl_roadmap.engine.trainer.online_metrics import (
 from dl_roadmap.engine.trainer.optimization import (
     AmpMode,
     GradNormalizer,
+    NoOptimization,
+    Optimization,
     OptimizationConfig,
     OptimizationEngine,
 )
@@ -62,10 +66,15 @@ __all__ = [
     "Metric",
     "MetricEarlyStopping",
     "MetricsManager",
+    "NoOptimization",
+    "Optimization",
     "OptimizationConfig",
     "OptimizationEngine",
+    "PairBatch",
     "PerTokenLossTracker",
+    "Phase",
     "RougeScore",
+    "StepContext",
     "TeacherForcingTrainer",
     "ThresholdEarlyStopping",
     "TokenAccuracy",

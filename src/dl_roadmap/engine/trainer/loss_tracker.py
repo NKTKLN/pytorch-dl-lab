@@ -4,6 +4,8 @@ from abc import ABC, abstractmethod
 
 import torch
 
+from dl_roadmap.engine.trainer.context import StepContext
+
 
 class LossTracker(ABC):
     """Base interface for aggregating per-batch loss over an epoch."""
@@ -21,7 +23,7 @@ class LossTracker(ABC):
         targets: torch.Tensor,
         extras: list[torch.Tensor],
         predictions: torch.Tensor,
-        train: bool,
+        ctx: StepContext,
     ) -> None:
         """Accumulate state from one batch.
 
@@ -32,7 +34,7 @@ class LossTracker(ABC):
             extras: Any batch elements beyond inputs/targets, already moved
                 to the training device.
             predictions: Model predictions for this batch.
-            train: Whether this batch was part of a training pass.
+            ctx: Phase, epoch and step this batch belongs to.
         """
         raise NotImplementedError
 
@@ -73,7 +75,7 @@ class MeanLossTracker(LossTracker):
         _targets: torch.Tensor,
         _extras: list[torch.Tensor],
         _predictions: torch.Tensor,
-        _train: bool,
+        _ctx: StepContext,
     ) -> None:
         """Accumulate one batch's loss.
 
@@ -83,7 +85,7 @@ class MeanLossTracker(LossTracker):
             _targets: Unused.
             _extras: Unused.
             _predictions: Unused.
-            _train: Unused.
+            _ctx: Unused.
         """
         self._total_loss += loss.item()
         self._n_batches += 1
@@ -118,7 +120,7 @@ class PerTokenLossTracker(LossTracker):
         targets: torch.Tensor,
         _extras: list[torch.Tensor],
         _predictions: torch.Tensor,
-        _train: bool,
+        _ctx: StepContext,
     ) -> None:
         """Accumulate one batch's loss and non-padding token count.
 
@@ -128,7 +130,7 @@ class PerTokenLossTracker(LossTracker):
             targets: Batch targets, used to count non-padding tokens.
             _extras: Unused.
             _predictions: Unused.
-            _train: Unused.
+            _ctx: Unused.
         """
         self._total_loss += loss.item()
         self._total_tokens += int((targets != self.pad_id).sum().item())

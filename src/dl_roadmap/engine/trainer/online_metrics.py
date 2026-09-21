@@ -8,6 +8,8 @@ from typing import Any
 import torch
 from torchmetrics.text.rouge import ROUGEScore
 
+from dl_roadmap.engine.trainer.context import StepContext
+
 MetricValue = float | Mapping[str, float]
 
 
@@ -26,7 +28,7 @@ class Metric(ABC):
         targets: torch.Tensor,
         extras: list[torch.Tensor],
         predictions: torch.Tensor,
-        train: bool,
+        ctx: StepContext,
     ) -> None:
         """Accumulate state from one batch.
 
@@ -38,7 +40,7 @@ class Metric(ABC):
             predictions: Model predictions for this batch, detached. Under
                 mixed precision these are half precision; cast before any
                 accumulation that needs full precision.
-            train: Whether this batch was part of a training pass.
+            ctx: Phase, epoch and step this batch belongs to.
         """
         raise NotImplementedError
 
@@ -93,7 +95,7 @@ class TokenAccuracy(Metric):
         targets: torch.Tensor,
         _extras: list[torch.Tensor],
         predictions: torch.Tensor,
-        _train: bool,
+        _ctx: StepContext,
     ) -> None:
         """Accumulate correct and total non-padding token counts.
 
@@ -104,7 +106,7 @@ class TokenAccuracy(Metric):
             predictions: Logits of shape (batch, seq, vocab) or (batch,
                 vocab, seq), matching `targets` once the vocab axis is
                 reduced.
-            _train: Unused.
+            _ctx: Unused.
         """
         labels = predictions.argmax(dim=-1)
         if labels.shape != targets.shape:
@@ -179,7 +181,7 @@ class RougeScore(Metric):
         targets: torch.Tensor,
         _extras: list[torch.Tensor],
         predictions: torch.Tensor,
-        train: bool,
+        ctx: StepContext,
     ) -> None:
         """Decode one batch and accumulate its ROUGE scores.
 
@@ -188,14 +190,14 @@ class RougeScore(Metric):
             targets: Batch target token ids, shape (batch, seq).
             _extras: Unused.
             predictions: Logits of shape (batch, seq, vocab).
-            train: Whether this batch was part of a training pass; skipped
-                unless `on_train` is set.
+            ctx: Phase, epoch and step this batch belongs to; training
+                batches are skipped unless `on_train` is set.
 
         Note:
             Predictions come from a teacher-forced pass, so the scores read
             higher than the ones free-running generation would produce.
         """
-        if train and not self.on_train:
+        if ctx.is_training and not self.on_train:
             return
 
         if self.max_batches is not None and self._n_batches >= self.max_batches:
@@ -297,10 +299,10 @@ class GeneratedRougeScore(Metric):
         targets: torch.Tensor,
         _extras: list[torch.Tensor],
         _predictions: torch.Tensor,
-        train: bool,
+        ctx: StepContext,
     ) -> None:
         """Generate summaries from sources and accumulate validation ROUGE."""
-        if train:
+        if ctx.is_training:
             return
 
         remaining = (

@@ -2,6 +2,7 @@
 
 import torch
 
+from dl_roadmap.engine.trainer.context import StepContext
 from dl_roadmap.engine.trainer.loss_tracker import LossTracker, MeanLossTracker
 from dl_roadmap.engine.trainer.online_metrics import Metric, flatten_metric
 
@@ -42,7 +43,7 @@ class MetricsManager:
         targets: torch.Tensor,
         extras: list[torch.Tensor],
         predictions: torch.Tensor,
-        train: bool,
+        ctx: StepContext,
     ) -> None:
         """Feed one batch to the loss tracker and every metric.
 
@@ -52,12 +53,12 @@ class MetricsManager:
             targets: Batch targets.
             extras: Additional batch tensors.
             predictions: Detached model predictions.
-            train: Whether this batch came from a training pass.
+            ctx: Phase, epoch and step this batch belongs to.
         """
-        self.loss_tracker.update(loss, inputs, targets, extras, predictions, train)
+        self.loss_tracker.update(loss, inputs, targets, extras, predictions, ctx)
 
         for metric in self.metrics.values():
-            metric.update(inputs, targets, extras, predictions, train)
+            metric.update(inputs, targets, extras, predictions, ctx)
 
     def batch_weight(self, targets: torch.Tensor) -> float:
         """Return the weight this batch contributes to an accumulation window.

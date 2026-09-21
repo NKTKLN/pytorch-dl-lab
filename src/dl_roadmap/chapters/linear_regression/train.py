@@ -9,7 +9,12 @@ from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 
 from dl_roadmap.data import make_synthetic_regression_dataset
-from dl_roadmap.engine import BaseTrainer, OptimizationEngine, TrainingConfig
+from dl_roadmap.engine import (
+    BaseTrainer,
+    OptimizationEngine,
+    PairBatch,
+    TrainingConfig,
+)
 from dl_roadmap.utils import LoadConfig, LoggerConfig, seed_everything, setup_logger
 from dl_roadmap.visualization import plot_training_history
 
@@ -92,7 +97,7 @@ def _run_training(
     loss_fn = nn.MSELoss()
     logger.info(f"Optimizer: SGD(lr={lr}), Loss: MSELoss")
 
-    trainer = BaseTrainer(
+    trainer: BaseTrainer[PairBatch] = BaseTrainer(
         model,
         loss_fn,
         config=trainer_config,

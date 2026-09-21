@@ -7,7 +7,7 @@ import torch
 from loguru import logger
 from torch import nn
 
-from dl_roadmap.engine.trainer.optimization import OptimizationEngine
+from dl_roadmap.engine.trainer.optimization import NoOptimization, Optimization
 
 History = dict[str, list[float]]
 
@@ -39,7 +39,7 @@ class TrainerStateStore:
     def __init__(
         self,
         model: nn.Module,
-        optimization: OptimizationEngine | None = None,
+        optimization: Optimization | None = None,
         checkpoint_dir: str = "",
     ) -> None:
         """Bind the state that a checkpoint has to capture.
@@ -51,7 +51,7 @@ class TrainerStateStore:
             checkpoint_dir: Directory `save_checkpoint()` writes into.
         """
         self.model = model
-        self.optimization = optimization
+        self.optimization = optimization or NoOptimization()
         self.checkpoint_dir = checkpoint_dir
         self.history: History = {"train_loss": [], "val_loss": []}
 
@@ -114,8 +114,9 @@ class TrainerStateStore:
             "history": self.history,
         }
 
-        if self.optimization is not None:
-            state["optimization_state_dict"] = self.optimization.state_dict()
+        optimization_state = self.optimization.state_dict()
+        if optimization_state:
+            state["optimization_state_dict"] = optimization_state
 
         torch.save(state, path)
         logger.debug(f"Saved trainer state: {path}")
