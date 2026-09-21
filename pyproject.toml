@@ -53,6 +53,8 @@ dev = [
   "deptry>=0.24.0",
   "commitizen>=4.13.7",
   "types-requests>=2.33.0.20260712",
+  "types-pyyaml>=6.0.12.20260906",
+  "types-tqdm>=4.70.0.20260906",
 ]
 
 [build-system]
@@ -150,6 +152,11 @@ disable_error_code = ["no-any-unimported"]
 [[tool.mypy.overrides]]
 module = "seaborn.*"
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "torchvision.*"
+ignore_missing_imports = true
+follow_untyped_imports = true
 
 [[tool.mypy.overrides]]
 module = "sklearn.*"
