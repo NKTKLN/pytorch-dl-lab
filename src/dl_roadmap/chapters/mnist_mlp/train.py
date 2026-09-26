@@ -11,11 +11,14 @@ from torchvision import datasets, transforms
 
 from dl_roadmap.chapters.mnist_mlp.model import MLP_MNIST
 from dl_roadmap.engine import (
-    BaseTrainer,
     ClassPredictor,
+    EpochSchedule,
+    EveryNIntervals,
+    NullProgress,
     OptimizationEngine,
     PairBatch,
-    TrainingConfig,
+    TqdmProgress,
+    Trainer,
 )
 from dl_roadmap.utils import LoadConfig, LoggerConfig, seed_everything, setup_logger
 from dl_roadmap.visualization import plot_confusion_matrix, plot_training_history
@@ -68,14 +71,6 @@ def _run_training(
         Tuple of (trained model, training history dict with "train_loss" and
         "val_loss" per-epoch lists).
     """
-    trainer_config = TrainingConfig(
-        epochs=training_config.get("epochs", 1),
-        device=training_config.get("device"),
-        checkpoint_dir=training_config.get("checkpoint_dir", ""),
-        checkpoint_every=training_config.get("checkpoint_every", 1),
-        show_progress=training_config.get("show_progress", True),
-    )
-
     model = MLP_MNIST()
     logger.info(f"Model: {type(model).__name__}")
 
@@ -84,14 +79,27 @@ def _run_training(
     loss_fn = nn.CrossEntropyLoss()
     logger.info(f"Optimizer: Adam(lr={lr}), Loss: CrossEntropyLoss")
 
-    trainer: BaseTrainer[PairBatch] = BaseTrainer(
+    checkpoint_dir = training_config.get("checkpoint_dir", "")
+    show_progress = training_config.get("show_progress", True)
+
+    trainer: Trainer[PairBatch] = Trainer(
         model,
         loss_fn,
-        config=trainer_config,
-        optimization=OptimizationEngine(optimizer),
+        OptimizationEngine(optimizer),
+        progress=TqdmProgress() if show_progress else NullProgress(),
+        device=training_config.get("device"),
     )
-    trainer.fit(train_loader, val_loader)
-    history = trainer.history
+    trainer.fit(
+        train_loader,
+        val_loader,
+        schedule=EpochSchedule(training_config.get("epochs", 1)),
+        checkpointer=(
+            EveryNIntervals(checkpoint_dir, training_config.get("checkpoint_every", 1))
+            if checkpoint_dir
+            else None
+        ),
+    )
+    history = trainer.state_store.history
 
     return trainer.model, history
 

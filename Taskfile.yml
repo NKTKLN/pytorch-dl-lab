@@ -97,6 +97,38 @@ tasks:
       - task: audit
       - task: unused-libs
 
+  ci:
+    desc: Run CI checks locally
+    cmds:
+      - task: lint
+      - task: test
+      - task: build
+
+  ci-frozen:
+    desc: Run CI checks with locked dependencies
+    cmds:
+      - task: sync-frozen
+      - task: lint
+      - task: test
+      - task: build
+
+  # ======== Tests ========
+  test:
+    desc: Run tests
+    cmds:
+      - uv run pytest
+
+  test-cov:
+    desc: Run tests with coverage
+    cmds:
+      - uv run pytest --cov --cov-report=term-missing --cov-report=xml
+
+  # ======== Build ========
+  build:
+    desc: Build package (wheel + sdist)
+    cmds:
+      - uv build
+
   # ======== Model Training ========
   train:linear:
     desc: Train first linear regression model

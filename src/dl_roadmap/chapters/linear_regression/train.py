@@ -10,10 +10,13 @@ from torch.utils.data import DataLoader, TensorDataset
 
 from dl_roadmap.data import make_synthetic_regression_dataset
 from dl_roadmap.engine import (
-    BaseTrainer,
+    EpochSchedule,
+    EveryNIntervals,
+    NullProgress,
     OptimizationEngine,
     PairBatch,
-    TrainingConfig,
+    TqdmProgress,
+    Trainer,
 )
 from dl_roadmap.utils import LoadConfig, LoggerConfig, seed_everything, setup_logger
 from dl_roadmap.visualization import plot_training_history
@@ -82,13 +85,6 @@ def _run_training(
     Returns:
         Training history dict with "train_loss" and "val_loss" per-epoch lists.
     """
-    trainer_config = TrainingConfig(
-        epochs=training_config.get("epochs", 1),
-        device=training_config.get("device"),
-        checkpoint_dir=training_config.get("checkpoint_dir", ""),
-        checkpoint_every=training_config.get("checkpoint_every", 1),
-    )
-
     model = nn.Linear(n_features, 1)
     logger.info(f"Model: Linear({n_features} -> 1)")
 
@@ -97,14 +93,27 @@ def _run_training(
     loss_fn = nn.MSELoss()
     logger.info(f"Optimizer: SGD(lr={lr}), Loss: MSELoss")
 
-    trainer: BaseTrainer[PairBatch] = BaseTrainer(
+    checkpoint_dir = training_config.get("checkpoint_dir", "")
+    show_progress = training_config.get("show_progress", True)
+
+    trainer: Trainer[PairBatch] = Trainer(
         model,
         loss_fn,
-        config=trainer_config,
-        optimization=OptimizationEngine(optimizer),
+        OptimizationEngine(optimizer),
+        progress=TqdmProgress() if show_progress else NullProgress(),
+        device=training_config.get("device"),
     )
-    trainer.fit(train_loader, val_loader)
-    history = trainer.history
+    trainer.fit(
+        train_loader,
+        val_loader,
+        schedule=EpochSchedule(training_config.get("epochs", 1)),
+        checkpointer=(
+            EveryNIntervals(checkpoint_dir, training_config.get("checkpoint_every", 1))
+            if checkpoint_dir
+            else None
+        ),
+    )
+    history = trainer.state_store.history
 
     logger.info(
         f"Model params: coef={model.weight.detach().numpy()}, "

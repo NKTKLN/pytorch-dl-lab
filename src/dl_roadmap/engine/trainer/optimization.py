@@ -1,6 +1,7 @@
-"""Owns the optimizer step: AMP, accumulation, clipping and scheduling."""
+"""Own the optimizer step: AMP, accumulation, clipping and scheduling."""
 
 from abc import ABC, abstractmethod
+from collections.abc import Mapping
 from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass
 from typing import Any, Literal, get_args
@@ -11,10 +12,13 @@ from torch.nn.utils import clip_grad_norm_
 from torch.optim import Optimizer
 from torch.optim.lr_scheduler import LRScheduler
 
-from dl_roadmap.engine.trainer.schedulers import WarmupScheduler, step_scheduler
+from dl_roadmap.engine.trainer.lr_schedulers import LRSchedule, as_lr_schedule
 
 AmpMode = Literal["auto", "off", "bf16", "fp16"]
+"""How the forward pass is autocast; see `OptimizationConfig.amp`."""
+
 GradNormalizer = Literal["batches", "loss_weights"]
+"""What accumulated gradients are divided by; see `OptimizationConfig`."""
 
 
 @dataclass
@@ -25,10 +29,12 @@ class OptimizationConfig:
         grad_clip_norm: Maximum gradient norm before each optimizer step;
             must be > 0. None disables gradient clipping.
         accumulation_steps: Number of batches per gradient accumulation
-            window. Any remaining batches are processed at epoch end.
+            window. A window a training pass leaves incomplete is stepped at
+            the end of that pass, so no gradients carry over.
         grad_normalizer: Normalize accumulated gradients by batch count
             ("batches", for mean-reduced loss) or summed weights from
-            `loss_tracker.batch_weight` ("loss_weights", for sum-reduced loss).
+            `loss_tracker.batch_weight` ("loss_weights", for sum-reduced loss);
+            must match the trainer's `loss_tracker`.
         amp: Autocast mode. "auto" selects native BF16 when supported on CUDA,
             otherwise FP16, and disables autocast on non-CUDA devices.
             "off" disables autocast. "bf16" and "fp16" select an explicit dtype;
@@ -67,7 +73,8 @@ class Optimization(ABC):
         can_step: Whether this implementation updates the model at all.
             `fit` refuses to run without it.
         config: Settings the trainer reads, such as `grad_normalizer`.
-        steps: Optimizer steps performed so far.
+        steps: Optimizer steps that updated the weights so far; a step the
+            gradient scaler skips is not counted.
     """
 
     can_step: bool
@@ -84,6 +91,7 @@ class Optimization(ABC):
         Returns:
             Optimization: This object, for chaining.
         """
+        raise NotImplementedError
 
     @abstractmethod
     def autocast(self) -> AbstractContextManager[None]:
@@ -92,39 +100,48 @@ class Optimization(ABC):
         Returns:
             AbstractContextManager[None]: Autocast context, or a no-op one.
         """
+        raise NotImplementedError
 
     @abstractmethod
     def backward(self, loss: torch.Tensor, batch_weight: float = 1.0) -> None:
-        """Back-propagate one micro-batch.
+        """Back-propagate one micro-batch into the accumulation window.
 
         Args:
             loss: Scalar loss for the micro-batch just processed.
-            batch_weight: Weight this micro-batch contributes to the window.
+            batch_weight: Weight this micro-batch adds to the window; the
+                accumulated gradients are divided by the summed weights
+                when the window is stepped.
         """
+        raise NotImplementedError
 
     @abstractmethod
     def step_if_ready(self) -> bool:
         """Step the optimizer once the accumulation window is full.
 
         Returns:
-            bool: True if the optimizer stepped.
+            bool: True if the window was full and has been closed. The
+                weights may still be left unchanged, as `steps` shows.
         """
+        raise NotImplementedError
 
     @abstractmethod
     def flush(self) -> bool:
-        """Step on micro-batches left over at the end of an epoch.
+        """Step on micro-batches left over at the end of a training pass.
 
         Returns:
-            bool: True if the optimizer stepped.
+            bool: True if a window was open and has been closed. The weights
+                may still be left unchanged, as `steps` shows.
         """
+        raise NotImplementedError
 
     @abstractmethod
-    def step_epoch(self, val_loss: float | None = None) -> None:
-        """Advance the learning-rate schedule at epoch end.
+    def step_interval(self, values: Mapping[str, float]) -> None:
+        """Advance the learning-rate schedule once an interval is recorded.
 
         Args:
-            val_loss: Validation loss, for schedulers that need it.
+            values: What the interval recorded, for schedules that watch it.
         """
+        raise NotImplementedError
 
     @abstractmethod
     def state_dict(self) -> dict[str, Any]:
@@ -133,6 +150,7 @@ class Optimization(ABC):
         Returns:
             dict[str, Any]: State to hand back to `load_state_dict`.
         """
+        raise NotImplementedError
 
     @abstractmethod
     def load_state_dict(self, state: dict[str, Any]) -> None:
@@ -141,6 +159,7 @@ class Optimization(ABC):
         Args:
             state: Mapping returned by `state_dict`.
         """
+        raise NotImplementedError
 
 
 class NoOptimization(Optimization):
@@ -201,11 +220,11 @@ class NoOptimization(Optimization):
         """
         return False
 
-    def step_epoch(self, _val_loss: float | None = None) -> None:
+    def step_interval(self, _values: Mapping[str, float]) -> None:
         """Do nothing, since there is no schedule to advance.
 
         Args:
-            _val_loss: Validation loss, for schedulers that need it; unused.
+            _values: What the interval recorded; unused.
         """
 
     def state_dict(self) -> dict[str, Any]:
@@ -232,22 +251,23 @@ class OptimizationEngine(Optimization):
     def __init__(
         self,
         optimizer: Optimizer,
-        scheduler: LRScheduler | WarmupScheduler | None = None,
+        scheduler: LRSchedule | LRScheduler | None = None,
         config: OptimizationConfig | None = None,
     ) -> None:
         """Bind the optimizer and scheduler to their step settings.
 
         Args:
             optimizer: Optimizer bound to the model parameters.
-            scheduler: Optional learning-rate scheduler. Standard schedulers
-                step after each epoch; `WarmupScheduler` also receives updates
-                after successful optimizer steps. `ReduceLROnPlateau` requires
-                validation loss.
+            scheduler: Optional learning-rate schedule. A bare PyTorch
+                scheduler advances after every interval; wrap it in
+                `TorchLRSchedule` to advance per optimizer step or to choose
+                what a `ReduceLROnPlateau` monitors, or in `Warmup` to ramp
+                up first.
             config: Optimizer-step options. None creates a default
                 `OptimizationConfig`.
         """
         self.optimizer = optimizer
-        self.scheduler = scheduler
+        self.scheduler = as_lr_schedule(scheduler) if scheduler is not None else None
         self.config = config or OptimizationConfig()
 
         self.device: torch.device | None = None
@@ -273,14 +293,18 @@ class OptimizationEngine(Optimization):
         if self._scaler is None:
             raise RuntimeError(
                 "OptimizationEngine is not prepared: call prepare(device) first. "
-                "BaseTrainer does this for you."
+                "Trainer does this for you."
             )
 
         return self._scaler
 
     @property
     def parameters(self) -> list[torch.Tensor]:
-        """Return every parameter the optimizer updates."""
+        """Return every parameter the optimizer updates.
+
+        Returns:
+            list[torch.Tensor]: Parameters of all param groups, in order.
+        """
         return [p for group in self.optimizer.param_groups for p in group["params"]]
 
     def prepare(self, device: torch.device) -> "OptimizationEngine":
@@ -363,12 +387,15 @@ class OptimizationEngine(Optimization):
         )
 
     def backward(self, loss: torch.Tensor, batch_weight: float = 1.0) -> None:
-        """Scale the loss, back-propagate it and open the accumulation window.
+        """Scale the loss and back-propagate it into the accumulation window.
+
+        The first micro-batch of a window clears the previous gradients.
 
         Args:
             loss: Scalar loss for the micro-batch just processed.
-            batch_weight: Weight this micro-batch contributes to the window,
-                as chosen by `config.grad_normalizer`.
+            batch_weight: Weight this micro-batch adds to the window: 1.0,
+                or the loss tracker's weight when `config.grad_normalizer`
+                is "loss_weights".
         """
         if self._pending_micro_batches == 0:
             self.optimizer.zero_grad(set_to_none=True)
@@ -381,7 +408,8 @@ class OptimizationEngine(Optimization):
         """Step the optimizer once the accumulation window is full.
 
         Returns:
-            bool: True if the optimizer stepped.
+            bool: True if the window was full and has been closed. The
+                weights may still be left unchanged, as `steps` shows.
         """
         if self._pending_micro_batches < self.config.accumulation_steps:
             return False
@@ -390,23 +418,29 @@ class OptimizationEngine(Optimization):
         return True
 
     def flush(self) -> bool:
-        """Step on micro-batches left over at the end of an epoch.
+        """Step on micro-batches left over at the end of a training pass.
 
         Returns:
-            bool: True if the optimizer stepped.
+            bool: True if a window was open and has been closed. The weights
+                may still be left unchanged, as `steps` shows.
         """
         if self._pending_micro_batches == 0:
             return False
 
         logger.debug(
             f"Flushing {self._pending_micro_batches} accumulated micro-batches "
-            "left over at the end of the epoch"
+            "left over at the end of the pass"
         )
         self._step()
         return True
 
     def _step(self) -> None:
-        """Normalize and clip gradients, then step the optimizer and warmup."""
+        """Close the window: normalize, clip and step, then advance the schedule.
+
+        The step is skipped when the window weighs nothing, and the gradient
+        scaler skips it on inf or NaN gradients; either way neither `steps`
+        nor the learning-rate schedule advances.
+        """
         window_weight = self._window_weight
         self._pending_micro_batches = 0
         self._window_weight = 0.0
@@ -438,35 +472,30 @@ class OptimizationEngine(Optimization):
 
         self.steps += 1
 
-        if isinstance(self.scheduler, WarmupScheduler):
-            self.scheduler.step_batch()
+        if self.scheduler is not None:
+            self.scheduler.after_step()
 
-    def step_epoch(self, val_loss: float | None = None) -> None:
-        """Advance the learning-rate scheduler at epoch end.
+    def step_interval(self, values: Mapping[str, float]) -> None:
+        """Advance the learning-rate schedule once an interval is recorded.
 
         Args:
-            val_loss: Validation loss for `ReduceLROnPlateau`. Other schedulers
-                do not require it.
+            values: What the interval recorded; a `ReduceLROnPlateau` steps
+                on the value it monitors.
 
         Raises:
-            ValueError: If the scheduler requires validation loss but
-                `val_loss` is None.
+            ValueError: If the schedule monitors a value the interval did
+                not record.
         """
-        if self.scheduler is None:
-            return
-
-        if isinstance(self.scheduler, WarmupScheduler):
-            self.scheduler.step_epoch(val_loss)
-            return
-
-        step_scheduler(self.scheduler, val_loss)
+        if self.scheduler is not None:
+            self.scheduler.after_interval(values)
 
     def state_dict(self) -> dict[str, Any]:
-        """Return optimizer, scheduler and scaler state.
+        """Return optimizer, schedule and scaler state, and the step count.
 
         Returns:
-            dict[str, Any]: State under "optimizer", "scheduler" and "scaler";
-                the scheduler entry is None when no scheduler is configured.
+            dict[str, Any]: State under "optimizer", "scheduler", "scaler"
+                and "steps"; the scheduler and scaler entries are None when
+                there is no schedule or the engine is not prepared yet.
         """
         return {
             "optimizer": self.optimizer.state_dict(),
@@ -478,11 +507,15 @@ class OptimizationEngine(Optimization):
         }
 
     def load_state_dict(self, state: dict[str, Any]) -> None:
-        """Restore optimizer, scheduler and scaler state.
+        """Restore optimizer, schedule and scaler state, and the step count.
+
+        The learning rate comes back with the optimizer's state.
 
         Args:
-            state: Mapping written by `state_dict()`. Missing entries are
-                skipped, so states saved without a scheduler still load.
+            state: Mapping written by `state_dict()`. Only "optimizer" is
+                required; missing entries are skipped, so states saved
+                without a schedule still load. The scaler state is applied
+                only once the engine is prepared.
         """
         self.optimizer.load_state_dict(state["optimizer"])
 
