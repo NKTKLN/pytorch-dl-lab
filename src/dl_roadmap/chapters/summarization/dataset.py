@@ -10,6 +10,7 @@ from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import Dataset
 
 
+# TODO delete SummarizationBatch  use insted from teacher_forcing.py
 class SummarizationBatch(NamedTuple):
     """One article with the two views of its summary the decoder needs.
 
