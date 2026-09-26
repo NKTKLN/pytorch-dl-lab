@@ -4,6 +4,11 @@
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.11+-EE4C2C?logo=pytorch&logoColor=white)](https://pytorch.org/)
 [![Jupyter](https://img.shields.io/badge/Jupyter-notebooks-F37626?logo=jupyter&logoColor=white)](https://jupyter.org/)
 [![uv](https://img.shields.io/badge/uv-managed-DE5FE9?logo=uv&logoColor=white)](https://docs.astral.sh/uv/)
+[![Ruff](https://img.shields.io/badge/linting-ruff-D7FF64?logo=ruff&logoColor=black)](https://docs.astral.sh/ruff/)
+[![Tested with pytest](https://img.shields.io/badge/testing-pytest-0A9EDC?logo=pytest&logoColor=white)](https://docs.pytest.org/)
+[![pre-commit](https://img.shields.io/badge/pre--commit-enabled-FAB040?logo=pre-commit&logoColor=black)](https://pre-commit.com/)
+[![Conventional Commits](https://img.shields.io/badge/Conventional%20Commits-1.0.0-FE5196?logo=conventionalcommits&logoColor=white)](https://www.conventionalcommits.org/)
+[![CI](https://github.com/NKTKLN/pytorch-dl-lab/actions/workflows/ci.yml/badge.svg)](https://github.com/NKTKLN/pytorch-dl-lab/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](./LICENSE.md)
 
 [English](./README.md) · **Русский**
@@ -42,8 +47,10 @@
 - pre-norm блоки энкодера и декодера Transformer;
 - beam search со штрафами за длину, повторы и повторяющиеся n-граммы;
 - тренировочный движок: накопление градиента, mixed precision, обрезка
-  градиентов, чекпоинты, early stopping;
-- планировщики learning rate с прогревом;
+  градиентов, чекпоинты, early stopping с возвратом лучших весов; обучение
+  отмеряется эпохами, шагами оптимизатора или бюджетом токенов;
+- расписания learning rate, которые шагают на каждом шаге оптимизатора или
+  на каждом интервале, с линейным прогревом перед ними;
 - вспомогательные функции для метрик, лоссов, графиков и сохранения моделей.
 
 Механизм внимания собран руками: четыре линейные проекции, маска и softmax.
@@ -122,6 +129,30 @@ uv run python -m dl_roadmap.chapters.fashion_cnn.train --skip-training
 ошибки. Чтобы включить их, скопируйте `.env.example` в `.env` и укажите
 `TELEGRAM_BOT_TOKEN` и `TELEGRAM_CHAT_ID`.
 
+## 🧪 Тесты
+
+У движка обучения есть свой набор тестов в `tests/trainer/`. Он работает на CPU
+примерно за десять секунд:
+
+```sh
+task test
+```
+
+Кроме обычных модульных проверок, он фиксирует то, в чём цикл обучения
+ошибается незаметно: градиенты, накопленные по нескольким микробатчам,
+совпадают с градиентами одного большого батча, и для усреднённого лосса,
+и для суммы по токенам; продолжение из сохранённого состояния повторяет
+непрерывный запуск один в один; early stopping возвращает лучшие веса, даже
+если колбэк упал с исключением.
+
+GitHub Actions запускает `task ci-frozen` (линтер, проверку типов, тесты и
+сборку пакета на зависимостях из `uv.lock`) на каждый push и pull request
+в `develop` и `main`.
+
+`task test-cov` проверяет порог покрытия 90% из `pyproject.toml`, который
+считается по всему пакету `dl_roadmap`. Тесты пока есть только у движка,
+поэтому порог не проходит, и CI запускает `task test`.
+
 ## 🛠️ Полезные команды
 
 | Команда | Что делает |
@@ -131,6 +162,9 @@ uv run python -m dl_roadmap.chapters.fashion_cnn.train --skip-training
 | `task sync-frozen` | Устанавливает версии из `uv.lock` |
 | `task fmt` | Форматирует код и применяет безопасные исправления Ruff |
 | `task lint` | Запускает Ruff, проверку форматирования и mypy |
+| `task test` | Запускает тесты |
+| `task test-cov` | Запускает тесты с отчётом о покрытии |
+| `task ci` | Запускает линтер, тесты и сборку пакета, как в CI |
 | `task audit` | Проверяет зависимости на известные уязвимости |
 | `task precommit-run` | Запускает все pre-commit-хуки |
 
@@ -144,6 +178,7 @@ uv run python -m dl_roadmap.chapters.fashion_cnn.train --skip-training
 ├── experiments/    # Эксперименты с подбором гиперпараметров
 ├── configs/        # YAML-конфигурация для обучения из терминала
 ├── src/dl_roadmap/ # Модели, слои, движок обучения и утилиты
+├── tests/          # Тесты движка обучения
 ├── data/            # Загруженные и демонстрационные датасеты
 └── reports/figures/ # Сгенерированные графики
 ```
