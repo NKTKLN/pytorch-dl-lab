@@ -76,13 +76,16 @@ def flatten_metric(name: str, value: MetricValue) -> dict[str, float]:
 class TokenAccuracy(Metric):
     """Score the share of non-padding target tokens predicted correctly."""
 
-    def __init__(self, pad_id: int) -> None:
+    def __init__(self, pad_id: int, vocab_dim: int = -1) -> None:
         """Initialize the metric with empty state.
 
         Args:
             pad_id: Token id used for padding, excluded from the counts.
+            vocab_dim: Axis of the logits that holds the vocabulary: -1 for
+                (batch, seq, vocab), 1 for (batch, vocab, seq).
         """
         self.pad_id = pad_id
+        self.vocab_dim = vocab_dim
         self._correct = 0
         self._total = 0
 
@@ -102,16 +105,22 @@ class TokenAccuracy(Metric):
         Args:
             parts: Batch tensors by role; targets are token ids of shape
                 (batch, seq).
-            predictions: Logits of shape (batch, seq, vocab) or (batch,
-                vocab, seq), matching the targets once the vocab axis is
-                reduced.
+            predictions: Logits with the vocabulary on `vocab_dim`, matching
+                the targets once that axis is reduced.
             _ctx: Unused.
+
+        Raises:
+            ValueError: If the reduced logits do not match the targets'
+                shape, e.g. because `vocab_dim` names the wrong axis.
         """
         targets = parts.require_targets()
-        labels = predictions.argmax(dim=-1)
+        labels = predictions.argmax(dim=self.vocab_dim)
 
         if labels.shape != targets.shape:
-            labels = predictions.argmax(dim=1)
+            raise ValueError(
+                f"Logits reduced over dim {self.vocab_dim} have shape "
+                f"{tuple(labels.shape)}, but the targets {tuple(targets.shape)}."
+            )
 
         mask = targets != self.pad_id
         self._correct += int((labels.eq(targets) & mask).sum().item())
