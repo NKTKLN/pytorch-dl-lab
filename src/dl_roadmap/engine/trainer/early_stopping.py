@@ -1,5 +1,6 @@
 """When a run stops, and which interval supplied its best weights."""
 
+import math
 from abc import ABC, abstractmethod
 from typing import Literal
 
@@ -131,9 +132,13 @@ class ThresholdEarlyStopping(EarlyStopping):
             score: Score of the interval just finished.
 
         Returns:
-            bool: True for the first score, and afterwards only for one that
-                clears the best by more than `min_delta`.
+            bool: False for a NaN or infinite score, which a diverged run
+                reports; otherwise True for the first score, and afterwards
+                only for one that clears the best by more than `min_delta`.
         """
+        if not math.isfinite(score):
+            return False
+
         if self.best_score is None:
             return True
 
