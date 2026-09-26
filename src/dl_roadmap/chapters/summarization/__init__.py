@@ -6,12 +6,10 @@ from dl_roadmap.chapters.summarization.dataset import (
     SummarizationDataset,
 )
 from dl_roadmap.chapters.summarization.model import Summarizer
-from dl_roadmap.chapters.summarization.trainer import SummarizationTrainer
 
 __all__ = [
     "SummarizationBatch",
     "SummarizationDataset",
-    "SummarizationTrainer",
     "Summarizer",
     "deduplicate_split",
     "prepare_gazeta",

@@ -1,13 +1,13 @@
-"""Loss functions bundled with the trainer settings they require."""
+"""Token-level cross-entropy and the trainer settings it requires."""
 
 from dataclasses import dataclass
 
 import torch
 from torch import nn
 
-from dl_roadmap.engine.trainer.base import LossFn
 from dl_roadmap.engine.trainer.loss_tracker import LossTracker, PerTokenLossTracker
 from dl_roadmap.engine.trainer.optimization import GradNormalizer
+from dl_roadmap.engine.trainer.trainer import LossFn
 
 
 @dataclass(frozen=True)
@@ -15,7 +15,7 @@ class LossBundle:
     """A loss function together with the trainer settings it needs.
 
     Attributes:
-        loss_fn: Callable passed to `BaseTrainer` as its loss.
+        loss_fn: Callable passed to `Trainer` as its loss.
         loss_tracker: Tracker aggregating that loss over an epoch.
         grad_normalizer: Value `OptimizationConfig.grad_normalizer` must take
             for the accumulated gradient to be normalized consistently
