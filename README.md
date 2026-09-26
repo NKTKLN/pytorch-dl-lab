@@ -4,6 +4,11 @@
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.11+-EE4C2C?logo=pytorch&logoColor=white)](https://pytorch.org/)
 [![Jupyter](https://img.shields.io/badge/Jupyter-notebooks-F37626?logo=jupyter&logoColor=white)](https://jupyter.org/)
 [![uv](https://img.shields.io/badge/uv-managed-DE5FE9?logo=uv&logoColor=white)](https://docs.astral.sh/uv/)
+[![Ruff](https://img.shields.io/badge/linting-ruff-D7FF64?logo=ruff&logoColor=black)](https://docs.astral.sh/ruff/)
+[![Tested with pytest](https://img.shields.io/badge/testing-pytest-0A9EDC?logo=pytest&logoColor=white)](https://docs.pytest.org/)
+[![pre-commit](https://img.shields.io/badge/pre--commit-enabled-FAB040?logo=pre-commit&logoColor=black)](https://pre-commit.com/)
+[![Conventional Commits](https://img.shields.io/badge/Conventional%20Commits-1.0.0-FE5196?logo=conventionalcommits&logoColor=white)](https://www.conventionalcommits.org/)
+[![CI](https://github.com/NKTKLN/pytorch-dl-lab/actions/workflows/ci.yml/badge.svg)](https://github.com/NKTKLN/pytorch-dl-lab/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](./LICENSE.md)
 
 **English** · [Русский](./README.ru.md)
@@ -43,8 +48,10 @@ The main reusable pieces include:
 - pre-norm Transformer encoder and decoder blocks;
 - beam search with length, repetition and no-repeat n-gram penalties;
 - a trainer with gradient accumulation, mixed precision, gradient clipping,
-  checkpoints and early stopping;
-- learning-rate warmup schedulers;
+  checkpoints and early stopping that can restore the best weights; a run is
+  counted in epochs, optimizer steps or a token budget;
+- learning-rate schedules that advance per optimizer step or per interval,
+  with a linear warmup ahead of them;
 - helpers for metrics, losses, visualizations and model checkpoints.
 
 Attention is assembled from four `nn.Linear` projections, a mask and a softmax.
@@ -121,6 +128,29 @@ Long-running jobs can optionally send a Telegram notification when training
 finishes or fails. Copy `.env.example` to `.env` and provide
 `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` to enable it.
 
+## 🧪 Tests
+
+The training engine has its own test suite in `tests/trainer/`. It runs on the
+CPU in about ten seconds:
+
+```sh
+task test
+```
+
+Besides the usual unit checks, it pins down what a training loop gets wrong
+silently: gradients accumulated over several micro-batches match one large
+batch, for both mean-reduced and token-summed losses; resuming from a saved
+state reproduces an uninterrupted run exactly; and early stopping puts the best
+weights back even when a callback raises.
+
+GitHub Actions runs `task ci-frozen` (lint, type check, tests and the package
+build against the dependencies locked in `uv.lock`) on every push and pull
+request to `develop` and `main`.
+
+`task test-cov` enforces the 90% coverage gate from `pyproject.toml`, measured
+over the whole `dl_roadmap` package. Only the engine has tests so far, so that
+gate does not pass yet, which is why CI runs `task test` instead.
+
 ## 🛠️ Useful commands
 
 | Command | What it does |
@@ -130,6 +160,9 @@ finishes or fails. Copy `.env.example` to `.env` and provide
 | `task sync-frozen` | Installs the versions pinned in `uv.lock` |
 | `task fmt` | Formats code and applies safe Ruff fixes |
 | `task lint` | Runs Ruff, the formatting check and mypy |
+| `task test` | Runs the test suite |
+| `task test-cov` | Runs the tests with a coverage report |
+| `task ci` | Runs lint, tests and the package build, as CI does |
 | `task audit` | Checks dependencies for known vulnerabilities |
 | `task precommit-run` | Runs all pre-commit hooks |
 
@@ -143,6 +176,7 @@ Run `task --list` to see every available command.
 ├── experiments/    # Hyperparameter-search experiments
 ├── configs/        # YAML configuration for CLI training
 ├── src/dl_roadmap/ # Models, layers, training engine and utilities
+├── tests/          # Tests for the training engine
 ├── data/            # Downloaded and example datasets
 └── reports/figures/ # Generated plots
 ```
