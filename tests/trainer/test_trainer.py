@@ -18,6 +18,7 @@ from dl_roadmap.engine.trainer import (
     OptimizationConfig,
     OptimizationEngine,
     PerTokenLossTracker,
+    Phase,
     StepContext,
     TorchLRSchedule,
     Trainer,
@@ -43,6 +44,25 @@ class MeanAbsError(Metric):
 
     def compute(self) -> float:
         return self.total / self.count
+
+
+class RecordingMetric(Metric):
+    """Remembers the context of every batch it was shown."""
+
+    def __init__(self) -> None:
+        self.contexts: list[StepContext] = []
+
+    def reset(self) -> None:
+        pass
+
+    def update(
+        self, parts: BatchParts, predictions: torch.Tensor, ctx: StepContext
+    ) -> None:
+        del parts, predictions
+        self.contexts.append(ctx)
+
+    def compute(self) -> float:
+        return 0.0
 
 
 class TestFitArguments:
@@ -181,6 +201,96 @@ class TestFit:
             "epoch_0002.pt",
             "epoch_0003.pt",
         ]
+
+
+class TestPasses:
+    def test_loss_weights_normalize_the_window_by_tokens(self) -> None:
+        config = OptimizationConfig(
+            amp="off", accumulation_steps=2, grad_normalizer="loss_weights"
+        )
+        trainer, model, _ = make_trainer(config=config)
+        trainer.loss_tracker = PerTokenLossTracker(pad_id=-1)
+        trainer.loss_fn = nn.MSELoss(reduction="sum")
+        loader = regression_loader(n=5, batch_size=3)
+        x, y = loader.dataset[:]
+
+        _, reference, reference_engine = make_trainer()
+        reference_engine.backward(
+            nn.functional.mse_loss(reference(x), y, reduction="sum") / 5
+        )
+        reference_engine.step_if_ready()
+
+        trainer.fit(loader, schedule=EpochSchedule(1))
+
+        torch.testing.assert_close(model.weight, reference.weight)
+        torch.testing.assert_close(model.bias, reference.bias)
+
+    def test_only_training_builds_a_graph(self) -> None:
+        trainer, model, _ = make_trainer()
+        modes: list[bool] = []
+        model.register_forward_hook(lambda *_: modes.append(torch.is_grad_enabled()))
+        loader = regression_loader(n=4, batch_size=4)
+
+        trainer.fit(loader, loader, schedule=EpochSchedule(1))
+        trainer.evaluate(loader)
+
+        assert modes == [True, False, False]
+
+    def test_every_pass_knows_where_it_runs(self) -> None:
+        progress = RecordingProgress()
+        trainer, *_ = make_trainer(progress=progress)
+        metric = RecordingMetric()
+        trainer.metrics = {"seen": metric}
+        reports: list[StepContext] = []
+        loader = regression_loader(n=8, batch_size=4)
+
+        trainer.fit(
+            loader,
+            loader,
+            schedule=EpochSchedule(2),
+            callbacks=[lambda report: reports.append(report.ctx)],
+        )
+        trainer.evaluate(loader)
+        trainer.predict(loader)
+
+        def pass_ctx(phase: Phase, interval: int, step: int) -> StepContext:
+            return StepContext(phase, interval, 2 if interval else 0, "epoch", step)
+
+        assert metric.contexts == [
+            pass_ctx("train", 1, 0),
+            pass_ctx("train", 1, 1),
+            pass_ctx("val", 1, 2),
+            pass_ctx("val", 1, 2),
+            pass_ctx("train", 2, 2),
+            pass_ctx("train", 2, 3),
+            pass_ctx("val", 2, 4),
+            pass_ctx("val", 2, 4),
+            pass_ctx("val", 0, 4),
+            pass_ctx("val", 0, 4),
+        ]
+        assert reports == [pass_ctx("train", 1, 2), pass_ctx("train", 2, 4)]
+        assert progress.passes == [
+            (pass_ctx("train", 1, 0), 2, "batch"),
+            (pass_ctx("val", 1, 2), 2, "batch"),
+            (pass_ctx("train", 2, 2), 2, "batch"),
+            (pass_ctx("val", 2, 4), 2, "batch"),
+            (pass_ctx("val", 0, 4), 2, "batch"),
+            (StepContext("predict", step=4), 2, "batch"),
+        ]
+        assert progress.advanced == 12
+
+    def test_running_postfix_adds_the_last_recorded_values(self) -> None:
+        progress = RecordingProgress()
+        trainer, *_ = make_trainer(progress=progress)
+        loader = regression_loader(n=4, batch_size=4)
+
+        trainer.fit(loader, loader, schedule=EpochSchedule(2))
+        history = trainer.state_store.history
+
+        assert progress.postfixes[-1] == {
+            "val_loss": f"{history['val_loss'][1]:.4g}",
+            "train_loss": f"{history['train_loss'][0]:.4g}",
+        }
 
 
 class TestSchedules:
