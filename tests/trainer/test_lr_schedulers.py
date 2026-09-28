@@ -152,6 +152,36 @@ class TestWarmup:
 
             assert lr_of(resumed_opt) == lr_of(opt)
 
+    def test_resumes_the_next_schedule_after_the_ramp(self) -> None:
+        def build() -> Warmup:
+            opt = optimizer()
+            return Warmup(opt, 1, then=TorchLRSchedule(StepLR(opt, 2), every="step"))
+
+        schedule = build()
+        for _ in range(4):
+            schedule.after_step()
+
+        resumed = build()
+        resumed.load_state_dict(schedule.state_dict())
+
+        assert resumed.state_dict() == schedule.state_dict()
+
+    def test_without_a_next_schedule_saves_none_and_ignores_one(self) -> None:
+        opt = optimizer()
+        schedule = Warmup(opt, 1)
+        schedule.after_step()
+        schedule.load_state_dict(Warmup(opt, 1, then=StepLR(opt, 1)).state_dict())
+
+        assert schedule.then is None
+        assert schedule.state_dict()["scheduler"] is None
+
+    def test_a_one_step_ramp_is_allowed(self) -> None:
+        opt = optimizer()
+        schedule = Warmup(opt, 1)
+        schedule.after_step()
+
+        assert (lr_of(opt), schedule.in_warmup) == (1.0, False)
+
     def test_rejects_an_empty_ramp(self) -> None:
         with pytest.raises(ValueError, match="length must be >= 1"):
             Warmup(optimizer(), 0)

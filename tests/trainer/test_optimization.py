@@ -5,6 +5,7 @@ from copy import deepcopy
 import pytest
 import torch
 from torch import nn
+from torch.optim.lr_scheduler import StepLR
 
 from dl_roadmap.engine.trainer import (
     NoOptimization,
@@ -190,6 +191,62 @@ def test_state_round_trips_with_momentum() -> None:
 
     assert second.steps == first.steps == 3
     torch.testing.assert_close(second_model.weight, first_model.weight)
+
+
+class TestResume:
+    @staticmethod
+    def build(amp: str = "off") -> tuple[nn.Linear, OptimizationEngine]:
+        model = linear()
+        optimizer = torch.optim.SGD(model.parameters(), lr=1.0)
+        eng = OptimizationEngine(
+            optimizer,
+            Warmup(optimizer, 2, then=StepLR(optimizer, 1, gamma=0.5)),
+            OptimizationConfig(amp=amp),  # type: ignore[arg-type]
+        ).prepare(CPU)
+
+        return model, eng
+
+    @staticmethod
+    def train(model: nn.Linear, eng: OptimizationEngine, steps: int) -> None:
+        for _ in range(steps):
+            with eng.autocast():
+                loss = model(torch.ones(4, 3)).float().pow(2).mean()
+            eng.backward(loss)
+            eng.step_if_ready()
+
+    def test_restores_the_schedule_and_the_scaler(self) -> None:
+        model, first = self.build("fp16")
+        self.train(model, first, 4)
+        _, second = self.build("fp16")
+        second.load_state_dict(deepcopy(first.state_dict()))
+
+        assert second.scheduler is not None and first.scheduler is not None
+        assert second.scheduler.state_dict() == first.scheduler.state_dict()
+        assert second.scaler.state_dict() == first.scaler.state_dict()
+        assert second.scaler.state_dict()["_growth_tracker"] > 0
+
+    def test_skips_state_the_engine_cannot_take(self) -> None:
+        model, first = self.build()
+        self.train(model, first, 1)
+        state = first.state_dict()
+        bare_model = linear()
+        bare = OptimizationEngine(torch.optim.SGD(bare_model.parameters(), lr=1.0))
+        bare.load_state_dict(deepcopy({**state, "scaler": {"scale": 8.0}}))
+
+        assert (bare.scheduler, bare._scaler) == (None, None)
+
+        _, scheduled = self.build()
+        scheduled.load_state_dict({**state, "scheduler": None, "scaler": None})
+
+        assert scheduled.scheduler is not None
+        assert scheduled.scheduler.state_dict()["warmup"]["last_epoch"] == 0
+
+    def test_steps_default_to_zero(self) -> None:
+        model, eng = self.build()
+        self.train(model, eng, 2)
+        eng.load_state_dict({"optimizer": eng.optimizer.state_dict()})
+
+        assert eng.steps == 0
 
 
 class TestAmp:

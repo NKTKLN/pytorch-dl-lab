@@ -1,5 +1,6 @@
 """History, state store, checkpointing, progress and step context."""
 
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -15,6 +16,7 @@ from dl_roadmap.engine.trainer import (
 )
 from dl_roadmap.engine.trainer.checkpointer import EveryNIntervals, NoCheckpoints
 from dl_roadmap.engine.trainer.progress import NullProgress, TqdmProgress
+from dl_roadmap.engine.trainer.schedule import StepSchedule
 
 
 def test_step_context_knows_the_training_phase() -> None:
@@ -70,6 +72,49 @@ class TestStateStore:
 
         assert (store.history.axis, store.history.unit) == ([1, 2], "epoch")
 
+    def test_round_trips_a_step_axis_into_new_directories(self, tmp_path: Path) -> None:
+        trainer, _, engine = make_trainer()
+        trainer.fit(
+            regression_loader(),
+            schedule=StepSchedule(engine, max_steps=4, eval_every=2),
+        )
+        path = trainer.state_store.save(tmp_path / "a" / "b" / "state.pt", 2)
+
+        store = TrainerStateStore(nn.Linear(3, 1))
+
+        assert store.load(path) == 2
+        assert (store.history.axis, store.history.unit) == ([2, 4], "step")
+
+    def test_interval_defaults_to_zero(self, tmp_path: Path) -> None:
+        store = TrainerStateStore(nn.Linear(1, 1))
+        path = store.save(tmp_path / "s.pt")
+        torch.save(
+            {"model_state_dict": nn.Linear(1, 1).state_dict()}, tmp_path / "o.pt"
+        )
+
+        assert (store.load(path), store.load(tmp_path / "o.pt")) == (0, 0)
+
+    def test_loads_through_its_map_location_unless_overridden(
+        self, tmp_path: Path
+    ) -> None:
+        calls: list[str] = []
+
+        def location(name: str) -> Callable[[torch.Tensor, str], torch.Tensor]:
+            def keep(storage: torch.Tensor, _loc: str) -> torch.Tensor:
+                calls.append(name)
+                return storage
+
+            return keep
+
+        store = TrainerStateStore(nn.Linear(1, 1), map_location=location("own"))
+        path = store.save(tmp_path / "s.pt")
+        store.load(path)
+        own = set(calls)
+        calls.clear()
+        store.load(path, map_location=location("call"))
+
+        assert (own, set(calls)) == ({"own"}, {"call"})
+
     def test_saves_no_optimizer_state_without_an_engine(self, tmp_path: Path) -> None:
         path = TrainerStateStore(nn.Linear(1, 1)).save(tmp_path / "s.pt")
 
@@ -118,6 +163,14 @@ class TestCheckpointer:
         path = EveryNIntervals(tmp_path).after_interval(1, store)
 
         assert path == tmp_path / "step_00002000.pt"
+
+    def test_checkpoint_records_its_interval(self, tmp_path: Path) -> None:
+        path = EveryNIntervals(tmp_path / "runs" / "a").after_interval(
+            3, TrainerStateStore(nn.Linear(1, 1))
+        )
+
+        assert path is not None
+        assert TrainerStateStore(nn.Linear(1, 1)).load(path) == 3
 
     def test_rejects_every_below_one(self, tmp_path: Path) -> None:
         with pytest.raises(ValueError, match="every must be >= 1"):

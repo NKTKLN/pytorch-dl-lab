@@ -85,6 +85,7 @@ class RecordingProgress:
 
     def __init__(self) -> None:
         self.passes: list[tuple[StepContext, int | None, Unit]] = []
+        self.postfixes: list[dict[str, str]] = []
         self.advanced = 0
         self.closed = 0
 
@@ -96,7 +97,7 @@ class RecordingProgress:
     def update(
         self, values: Mapping[str, str] | None = None, *, advance: int = 1
     ) -> None:
-        del values
+        self.postfixes.append(dict(values or {}))
         self.advanced += advance
 
     def refresh(self, values: Mapping[str, str] | None = None) -> None:
