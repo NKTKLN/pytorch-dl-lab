@@ -59,6 +59,17 @@ class TestValLoss:
         assert flags == [False, True, True]
         assert strategy.best_interval == 3
 
+    def test_nan_first_counts_once_toward_patience(self) -> None:
+        strategy = ValLossEarlyStopping(patience=2)
+        feed(strategy, [math.nan])
+
+        assert not strategy.should_stop
+
+    def test_starts_undecided(self) -> None:
+        strategy = ValLossEarlyStopping(patience=1)
+
+        assert (strategy.is_best, strategy.should_stop) == (False, False)
+
     @pytest.mark.parametrize("patience", [0, -1])
     def test_rejects_patience_below_one(self, patience: int) -> None:
         with pytest.raises(ValueError, match="patience must be >= 1"):
@@ -73,6 +84,41 @@ class TestOtherScores:
             strategy.update(make_report(number, values={"val_acc": acc}))
 
         assert (strategy.best_interval, strategy.should_stop) == (2, True)
+
+    def test_metric_in_max_mode_must_strictly_clear_min_delta(self) -> None:
+        strategy = MetricEarlyStopping("val_acc", patience=5, min_delta=0.5)
+        flags = []
+
+        for number, acc in enumerate([1.0, 1.5, 0.8, 1.75], start=1):
+            strategy.update(make_report(number, values={"val_acc": acc}))
+            flags.append(strategy.is_best)
+
+        assert flags == [True, False, False, True]
+
+    def test_metric_in_min_mode(self) -> None:
+        strategy = MetricEarlyStopping("val_mae", patience=5, mode="min")
+
+        for number, mae in enumerate([1.0, 0.5], start=1):
+            strategy.update(make_report(number, values={"val_mae": mae}))
+
+        assert strategy.best_interval == 2
+
+    @pytest.mark.parametrize(
+        "strategy",
+        [
+            MetricEarlyStopping("val_acc", 1, restore_best_weights=True),
+            GeneralizationGapEarlyStopping(1, restore_best_weights=True),
+        ],
+    )
+    def test_pass_restore_best_weights_on(self, strategy: EarlyStopping) -> None:
+        assert strategy.restore_best_weights
+
+    def test_generalization_gap_must_strictly_clear_min_delta(self) -> None:
+        strategy = GeneralizationGapEarlyStopping(patience=5, min_delta=0.5)
+        strategy.update(make_report(1, train_loss=1.0, val_loss=2.0))
+        strategy.update(make_report(2, train_loss=1.0, val_loss=1.5))
+
+        assert strategy.best_interval == 1
 
     def test_metric_absent_from_the_report_is_skipped(self) -> None:
         strategy = MetricEarlyStopping("val_acc", patience=1)
@@ -99,6 +145,12 @@ class TestOtherScores:
 
         assert stops == [False, False, False, True]
         assert strategy.best_interval is None
+
+    def test_gap_at_the_threshold_is_tolerated(self) -> None:
+        strategy = GapThresholdEarlyStopping(patience=1, threshold=0.5)
+        strategy.update(make_report(1, train_loss=1.0, val_loss=1.5))
+
+        assert (strategy.gap, strategy.should_stop) == (0.5, False)
 
     def test_gap_threshold_rejects_patience_below_one(self) -> None:
         with pytest.raises(ValueError, match="patience must be >= 1"):
@@ -134,6 +186,14 @@ class TestCombined:
         strategy.update(make_report(2, val_loss=1.1, values={"val_acc": 0.6}))
 
         assert (strategy.is_best, strategy.best_interval) == (True, 2)
+
+    def test_stops_with_any_strategy_by_default(self) -> None:
+        strategy = CombinedEarlyStopping(
+            [ValLossEarlyStopping(1), ValLossEarlyStopping(3)]
+        )
+        feed(strategy, [1.0, 1.1])
+
+        assert strategy.should_stop
 
     def test_rejects_no_strategies(self) -> None:
         with pytest.raises(ValueError, match="must not be empty"):
@@ -175,6 +235,15 @@ class TestRestore:
     def test_without_the_flag_leaves_the_model_alone(self) -> None:
         model = nn.Linear(1, 1)
         strategy = ValLossEarlyStopping(5)
+        self.run(strategy, model, [1.0, 2.0])
+
+        strategy.restore(model)
+
+        assert model.weight.item() == 2.0
+
+    def test_combined_keeps_no_weights_by_default(self) -> None:
+        model = nn.Linear(1, 1)
+        strategy = CombinedEarlyStopping([ValLossEarlyStopping(5)])
         self.run(strategy, model, [1.0, 2.0])
 
         strategy.restore(model)

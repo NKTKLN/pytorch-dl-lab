@@ -107,6 +107,16 @@ class TestTokenAccuracy:
         with pytest.raises(ValueError, match="Logits reduced over dim -1"):
             metric.update(BatchParts(self.TARGETS, self.TARGETS), logits, VAL)
 
+    def test_accumulates_over_batches(self) -> None:
+        metric = TokenAccuracy(PAD)
+        metric.reset()
+        metric.update(BatchParts(self.TARGETS, self.TARGETS), one_hot(self.LABELS), VAL)
+        metric.update(
+            BatchParts(self.TARGETS, self.TARGETS), one_hot(self.TARGETS), VAL
+        )
+
+        assert metric.compute() == pytest.approx(5 / 6)
+
     def test_is_zero_before_any_batch(self) -> None:
         metric = TokenAccuracy(PAD)
         metric.reset()
@@ -154,6 +164,22 @@ class TestRougeScore:
         metric.update(BatchParts(self.TOKENS, self.TOKENS), one_hot(wrong), VAL)
 
         assert metric.compute()["mean"] == pytest.approx(1.0)
+
+    def test_scores_every_batch_up_to_the_cap(self) -> None:
+        calls: list[int] = []
+
+        def counting(sequences: list[list[int]]) -> list[str]:
+            calls.append(len(sequences))
+            return decode(sequences)
+
+        metric = RougeScore(counting, PAD, max_batches=2)
+        metric.reset()
+        self.update(metric)
+        per_batch = len(calls)
+        self.update(metric)
+        self.update(metric)
+
+        assert len(calls) == 2 * per_batch
 
 
 class TestGeneratedRougeScore:
@@ -206,3 +232,13 @@ class TestGeneratedRougeScore:
     def test_rejects_max_examples_below_one(self) -> None:
         with pytest.raises(ValueError, match="max_examples must be >= 1"):
             GeneratedRougeScore(lambda s: s, decode, PAD, max_examples=0)
+
+    def test_one_example_is_enough(self) -> None:
+        calls: list[torch.Tensor] = []
+        metric = GeneratedRougeScore(
+            self.echo(calls), decode, PAD, max_examples=1, generation_kwargs={"beam": 2}
+        )
+        metric.reset()
+        metric.update(BatchParts(self.SOURCES, self.SOURCES), torch.zeros(1), VAL)
+
+        assert len(calls) == 1
